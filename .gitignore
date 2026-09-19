@@ -5,6 +5,8 @@ docker/.cache/
 # OS generated files
 .DS_Store
 *.local
+*.log
+*.lock
 ._*
 .Spotlight-V100
 .Trashes
@@ -66,6 +68,9 @@ config.yaml.bak
 /frontend/playwright-report/
 .gstack/
 .worktrees
+
+# Local development journals (may contain machine-specific investigation notes)
+DEVLOG*.md
 
 # Monocle agent-observability trace output (local file exporter)
 .monocle/

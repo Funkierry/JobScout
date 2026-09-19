@@ -1469,7 +1469,13 @@ def _lark_cli_managed_bin_dir() -> Path:
 
 
 def _lark_cli_managed_path() -> str | None:
-    for name in ("lark-cli", "lark-cli.cmd"):
+    # npm's Windows bin shims always include an extensionless POSIX shell
+    # script alongside `.cmd`/`.ps1` (for WSL/git-bash use). `subprocess.run`
+    # cannot exec that shell script directly on Windows (WinError 193: not a
+    # valid Win32 application), so `.cmd` must be preferred there; on POSIX
+    # only the extensionless script exists at all.
+    names = ("lark-cli.cmd", "lark-cli") if os.name == "nt" else ("lark-cli",)
+    for name in names:
         candidate = _lark_cli_managed_bin_dir() / name
         if candidate.exists():
             return str(candidate)

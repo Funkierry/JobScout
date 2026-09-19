@@ -1,0 +1,8 @@
+{
+  "name": "jobscout-web-e2e",
+  "private": true,
+  "description": "Playwright driver that verifies jobscout-web end to end in a real (headless) browser. See SKILL.md.",
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}

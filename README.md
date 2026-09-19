@@ -1,3 +1,93 @@
+# JobScout
+
+JobScout is an evidence-backed interview-research and job-preparation agent for
+mainland-China recruiting. It turns a company, role direction, recruiting type,
+optional job description, and optional resume into a structured preparation
+pack with traceable public sources.
+
+This repository is a product-focused extension of
+[ByteDance DeerFlow](https://github.com/bytedance/deer-flow). It retains the
+upstream agent harness and adds a dedicated JobScout skill, a standalone web
+experience, deterministic output contracts, browser end-to-end coverage, and
+Windows/Lark integration fixes.
+
+## Product flow
+
+```text
+company + role + recruiting type (+ JD/resume)
+  -> three parallel research tracks
+  -> company overview + role breakdown + interview prediction
+  -> optional resume gap analysis
+  -> inline report + Markdown download + print/PDF export
+```
+
+## JobScout highlights
+
+- Runs company, role, and interview research as exactly three parallel tasks.
+- Produces at least 8 technical/role questions and 4 behavioral questions when
+  usable public evidence exists, with a clickable source on every row.
+- Uses explicit evidence tiers and fallback rules instead of inventing missing
+  company-specific facts.
+- Accepts PDF/DOCX resume uploads and adds gap analysis only when a readable
+  resume is available.
+- Provides a standalone chat UI with authentication, conversation history,
+  drag-and-drop upload, streaming output, inline reports, Markdown download,
+  and print/PDF export.
+- Includes deterministic browser E2E coverage that exercises the real
+  auth/thread/SSE/render/print/download path without model cost, plus an opt-in
+  live research mode.
+- Includes Windows fixes for the managed Lark CLI and OAuth popup handoff. The
+  Lark connection is a prerequisite for future resume-to-Feishu-Base matching;
+  that matching feature is not yet presented as complete.
+
+## Where the JobScout code lives
+
+- [`skills/public/jobscout/SKILL.md`](./skills/public/jobscout/SKILL.md) — agent
+  scope, research policy, parallel workflow, evidence rules, and output contract.
+- [`jobscout-web/`](./jobscout-web/) — build-free standalone browser client.
+- [`backend/tests/test_jobscout_skill_contract.py`](./backend/tests/test_jobscout_skill_contract.py)
+  — backend contract test for the actual DeerFlow skill parser and tool policy.
+- [`.claude/skills/jobscout-web-e2e/`](./.claude/skills/jobscout-web-e2e/) —
+  reproducible Playwright browser acceptance flow.
+
+## Run locally
+
+Follow the upstream DeerFlow configuration instructions below, then start the
+Gateway on `http://localhost:8001`. Serve the standalone client on port 5500:
+
+```powershell
+cd jobscout-web
+python -m http.server 5500
+```
+
+Add both `http://localhost:5500` and `http://127.0.0.1:5500` to
+`GATEWAY_CORS_ORIGINS` in your local `.env`. Local credentials and generated
+runtime state are intentionally excluded from Git.
+
+## Verify
+
+```powershell
+cd backend
+uv run pytest tests/test_jobscout_skill_contract.py
+
+cd ..\jobscout-web
+node test_pure.js
+
+cd ..\.claude\skills\jobscout-web-e2e
+npm install
+node drive.js
+```
+
+Set `JOBSCOUT_REAL_RESEARCH=1` only when you intentionally want the slower,
+model- and search-backed acceptance run.
+
+## Attribution
+
+JobScout is built on DeerFlow 2.0 and keeps the upstream MIT license and project
+documentation. The original DeerFlow README continues below.
+
+---
+
 # 🦌 DeerFlow - 2.0
 
 English | [中文](./README_zh.md) | [日本語](./README_ja.md) | [Français](./README_fr.md) | [Русский](./README_ru.md)

@@ -42,6 +42,7 @@ import {
   useStartLarkAuthorization,
   useStartLarkConfiguration,
 } from "@/core/integrations/lark";
+import { handOffAuthorizationWindow } from "@/core/integrations/lark/authorization-window";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
@@ -229,7 +230,6 @@ function LarkIntegrationCard() {
   const openPendingBrowserWindow = () => {
     const browserWindow = window.open("about:blank", "_blank");
     if (browserWindow) {
-      browserWindow.opener = null;
       browserWindowRef.current = browserWindow;
     }
     return browserWindow;
@@ -248,9 +248,15 @@ function LarkIntegrationCard() {
     browserWindow = browserWindowRef.current,
   ) => {
     if (browserWindow && !browserWindow.closed) {
-      browserWindow.location.href = url;
-      browserWindowRef.current = browserWindow;
-      return;
+      try {
+        handOffAuthorizationWindow(browserWindow, url);
+        browserWindowRef.current = browserWindow;
+        return;
+      } catch {
+        // The URL remains visible in the pending-flow card. Best-effort open a
+        // fresh no-opener tab instead of surfacing an unhandled SecurityError.
+        browserWindow.close();
+      }
     }
     browserWindowRef.current = window.open(
       url,

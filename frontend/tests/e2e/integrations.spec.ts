@@ -51,6 +51,10 @@ test.describe("Integrations settings", () => {
   test("falls back when copying a Lark authorization link without the Clipboard API", async ({
     page,
   }) => {
+    const authorizationUrl =
+      "http://127.0.0.1:3000/login#lark-auth-copy-fallback";
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.addInitScript(() => {
       Object.defineProperty(document, "execCommand", {
         configurable: true,
@@ -89,7 +93,7 @@ test.describe("Integrations settings", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          verification_url: "about:blank#lark-auth-copy-fallback",
+          verification_url: authorizationUrl,
           device_code: "copy-fallback-device-code",
           generation: "copy-fallback-generation",
           expires_in: 600,
@@ -114,9 +118,9 @@ test.describe("Integrations settings", () => {
     const popupPromise = page.waitForEvent("popup");
     await dialog.getByRole("button", { name: "Connect Lark" }).click();
     const popup = await popupPromise;
-    await expect(
-      dialog.getByText("about:blank#lark-auth-copy-fallback"),
-    ).toBeVisible();
+    await popup.waitForURL(authorizationUrl);
+    await expect(dialog.getByText(authorizationUrl)).toBeVisible();
+    expect(pageErrors).toEqual([]);
     await popup.close();
 
     // The app installs a compatibility shim during startup. Remove it here to
@@ -137,7 +141,7 @@ test.describe("Integrations settings", () => {
             (window as typeof window & { __copiedText?: string }).__copiedText,
         ),
       )
-      .toBe("about:blank#lark-auth-copy-fallback");
+      .toBe(authorizationUrl);
     await expect(page.getByText("Copied to clipboard")).toBeVisible();
   });
 

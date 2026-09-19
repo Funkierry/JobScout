@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JobScout · 中国大陆求职面试准备</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-mark">JS</span>
+      <span class="brand-name">JobScout</span>
+    </div>
+    <div id="userBox" class="user-box hidden">
+      <span id="userEmail"></span>
+      <button id="logoutBtn" class="link-btn">退出登录</button>
+    </div>
+  </div>
+</header>
+
+<main class="page">
+
+  <!-- ===== 登录/注册 ===== -->
+  <section id="authView" class="view">
+    <div class="card auth-card">
+      <h1>登录 JobScout</h1>
+      <p class="muted">基于 DeerFlow 引擎的中国大陆求职面试准备助手。账号数据存在你本地的 DeerFlow 实例里。</p>
+      <form id="authForm">
+        <label>邮箱
+          <input type="email" id="authEmail" required autocomplete="username" />
+        </label>
+        <label>密码
+          <input type="password" id="authPassword" required autocomplete="current-password" minlength="8" />
+          <span id="authPasswordHint" class="field-hint hidden">至少 8 位,且不能是过于常见的弱密码</span>
+        </label>
+        <div class="auth-actions">
+          <button type="submit" id="authSubmit" class="primary-btn">登录</button>
+          <button type="button" id="authToggle" class="link-btn">还没有账号?注册一个</button>
+        </div>
+        <p id="authError" class="error-text hidden"></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===== 对话(主界面) ===== -->
+  <section id="chatView" class="view hidden chat-shell">
+
+    <aside class="sidebar">
+      <button type="button" id="newChatBtn" class="sidebar-new-btn">+ 新对话</button>
+      <div id="threadList" class="thread-list"></div>
+    </aside>
+
+    <div class="card chat-card chat-card-main" id="chatCard">
+      <div id="dropOverlay" class="drop-overlay hidden">
+        <div class="drop-overlay-inner">📄 松开鼠标上传文件</div>
+      </div>
+
+      <div class="chat-header">
+        <div class="chat-header-title">
+          <strong>JobScout</strong>
+          <span class="muted small" id="chatStatus"></span>
+        </div>
+      </div>
+
+      <div id="chatMessages" class="chat-messages"></div>
+
+      <div class="composer">
+        <button type="button" id="attachBtn" class="attach-btn" title="上传简历(PDF / Word / TXT / Markdown)">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+        </button>
+        <input type="file" id="composerFile" accept=".pdf,.doc,.docx,.txt,.md" hidden />
+
+        <div class="composer-body">
+          <div id="attachedChip" class="attached-chip hidden">
+            <span id="attachedChipText"></span>
+            <button type="button" id="attachedChipRemove" aria-label="移除附件">&times;</button>
+          </div>
+          <form id="composerForm" class="composer-form">
+            <textarea
+              id="composerInput"
+              rows="1"
+              placeholder="说说你想准备哪家公司、什么岗位(校招/社招/实习),可以贴 JD 或链接... (Enter 发送,Shift+Enter 换行)"
+            ></textarea>
+            <button type="submit" id="composerSend" class="primary-btn">发送</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

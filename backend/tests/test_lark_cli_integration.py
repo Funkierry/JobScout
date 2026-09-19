@@ -213,6 +213,38 @@ def _advance_lark_flow(user_id: str = "alice") -> str:
         return lark_cli._advance_lark_flow_generation_locked(user_id)
 
 
+def test_managed_lark_cli_path_prefers_cmd_shim_on_windows(monkeypatch, tmp_path) -> None:
+    """npm always writes an extensionless POSIX shim alongside `.cmd` on Windows.
+
+    ``subprocess.run`` cannot execute that shell script directly on Windows
+    (WinError 193), so ``.cmd`` must win when both are present — regression for
+    a real install failure where the extensionless name was checked first and
+    always existed, so `.cmd` was never reached.
+    """
+    _patch_paths(monkeypatch, tmp_path / "home")
+    monkeypatch.setattr(lark_cli.os, "name", "nt")
+    bin_dir = lark_cli._lark_cli_managed_bin_dir()
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "lark-cli").write_text("#!/usr/bin/env node\n", encoding="utf-8")
+    (bin_dir / "lark-cli.cmd").write_text("@ECHO OFF\r\n", encoding="utf-8")
+
+    resolved = lark_cli._lark_cli_managed_path()
+
+    assert resolved == str(bin_dir / "lark-cli.cmd")
+
+
+def test_managed_lark_cli_path_uses_posix_shim_on_posix(monkeypatch, tmp_path) -> None:
+    _patch_paths(monkeypatch, tmp_path / "home")
+    monkeypatch.setattr(lark_cli.os, "name", "posix")
+    bin_dir = lark_cli._lark_cli_managed_bin_dir()
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "lark-cli").write_text("#!/usr/bin/env node\n", encoding="utf-8")
+
+    resolved = lark_cli._lark_cli_managed_path()
+
+    assert resolved == str(bin_dir / "lark-cli")
+
+
 def test_sandbox_lark_cli_env_prepends_managed_linux_runtime() -> None:
     overlay = lark_cli.lark_cli_env_overlay("alice", sandbox_paths=True)
 
