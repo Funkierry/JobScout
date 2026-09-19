@@ -1,9 +1,9 @@
 # JobScout
 
-JobScout is an evidence-backed interview-research and job-preparation agent for
-mainland-China recruiting. It turns a company, role direction, recruiting type,
-optional job description, and optional resume into a structured preparation
-pack with traceable public sources.
+JobScout is an AI job-research and resume-matching product for mainland-China
+recruiting. It turns a company, role direction, recruiting type, optional job
+description, and resume into a structured preparation pack with traceable
+public sources, or ranks private Feishu Base job records against that resume.
 
 This repository is a product-focused extension of
 [ByteDance DeerFlow](https://github.com/bytedance/deer-flow). It retains the
@@ -14,11 +14,14 @@ Windows/Lark integration fixes.
 ## Product flow
 
 ```text
-company + role + recruiting type (+ JD/resume)
-  -> three parallel research tracks
-  -> company overview + role breakdown + interview prediction
-  -> optional resume gap analysis
-  -> inline report + Markdown download + print/PDF export
+interview mode: company + role + recruiting type (+ JD/resume)
+  -> three parallel research tracks -> evidence-backed preparation report
+
+matching mode: uploaded resume + authenticated Feishu Base URL (+ preferences)
+  -> authenticated read-only field projection -> bounded job context
+  -> explainable 100-point matching -> ranked job report
+
+both -> inline report + Markdown download + print/PDF export
 ```
 
 ## JobScout highlights
@@ -37,14 +40,18 @@ company + role + recruiting type (+ JD/resume)
   auth/thread/SSE/render/print/download path without model cost, plus an opt-in
   live research mode.
 - Includes Windows fixes for the managed Lark CLI and OAuth popup handoff. The
-  Lark connection is a prerequisite for future resume-to-Feishu-Base matching;
-  that matching feature is not yet presented as complete.
+  matching mode uses the current user's authenticated connection to read only
+  job-relevant Base fields through a fixed Gateway adapter; arbitrary CLI
+  commands, credentials, and unrelated columns are not exposed to the browser.
 
 ## Where the JobScout code lives
 
 - [`skills/public/jobscout/SKILL.md`](./skills/public/jobscout/SKILL.md) — agent
   scope, research policy, parallel workflow, evidence rules, and output contract.
 - [`jobscout-web/`](./jobscout-web/) — build-free standalone browser client.
+- [`backend/app/gateway/jobscout_base.py`](./backend/app/gateway/jobscout_base.py)
+  and [`backend/app/gateway/routers/jobscout.py`](./backend/app/gateway/routers/jobscout.py)
+  — URL validation, bounded read-only Base adapter, and authenticated API.
 - [`backend/tests/test_jobscout_skill_contract.py`](./backend/tests/test_jobscout_skill_contract.py)
   — backend contract test for the actual DeerFlow skill parser and tool policy.
 - [`.claude/skills/jobscout-web-e2e/`](./.claude/skills/jobscout-web-e2e/) —
@@ -68,7 +75,7 @@ runtime state are intentionally excluded from Git.
 
 ```powershell
 cd backend
-uv run pytest tests/test_jobscout_skill_contract.py
+uv run pytest tests/test_jobscout_base.py tests/test_jobscout_router.py tests/test_jobscout_skill_contract.py
 
 cd ..\jobscout-web
 node test_pure.js

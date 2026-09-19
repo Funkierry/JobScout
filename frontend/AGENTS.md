@@ -204,3 +204,21 @@ mutation permissions, and cache ownership remain in the existing hooks. Skill di
 metadata; runtime names and full descriptions remain unchanged. Public, custom,
 integration, and legacy sources must stay distinct. Community currently offers
 archive import, not a remote marketplace. Screenshot E2E fixtures are demo data.
+
+Lark OAuth pre-opens a blank tab synchronously so popup blockers cannot reject
+the later asynchronous authorization URL. Keep the handoff order centralized in
+`core/integrations/lark/authorization-window.ts`: schedule `location.replace()`
+before setting `opener = null`. Detaching first moves Chromium's blank tab out
+of the opener's browsing-context group and a later parent-side navigation throws
+`SecurityError`, leaving users on stale device codes. The unit ordering test and
+the integrations E2E cross-origin popup assertion pin this contract.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

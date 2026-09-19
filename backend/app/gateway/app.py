@@ -28,6 +28,7 @@ from app.gateway.routers import (
     github_webhooks,
     input_polish,
     integrations,
+    jobscout,
     knowledge,
     mcp,
     mcp_tasks,
@@ -927,6 +928,9 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
 
     # First-party integrations API is mounted at /api/integrations
     app.include_router(integrations.router)
+
+    # JobScout's authenticated read-only Feishu Base adapter.
+    app.include_router(jobscout.router)
 
     # Read-only RAGFlow catalog for chat knowledge-scope selection.
     app.include_router(knowledge.router)

@@ -63,12 +63,33 @@ const REPORT_FIXTURE = `# 测试公司 · 后端开发 面试准备包
 - 这段也不得进入展示、打印或下载结果。
 `;
 
+const MATCH_REPORT_FIXTURE = `# 简历 × 飞书岗位匹配报告
+
+## 候选人画像
+- AI 产品与技术复合背景
+
+## 推荐岗位
+| 排名 | 匹配度 | 公司 / 岗位 | 核心匹配 | 主要差距 | 建议动作 | 记录标识 |
+|---|---:|---|---|---|---|---|
+| 1 | 88 | 示例科技 / AI 产品经理 | Agent、RAG | 商业化经验 | 补充指标 | rec1 |
+
+## 匹配依据
+- 使用统一的 100 分匹配口径。
+
+## 风险与数据边界
+- 本次只读取 1 条确定性测试记录。
+
+## 一周上岸计划
+- 这段必须被岗位匹配报告契约剔除。
+`;
+
 (async () => {
   const browser = await chromium.launch();
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
   const errors = [];
   let activeThreadId = null;
+  let baseContextRequests = 0;
   page.on("console", (msg) => { if (msg.type() === "error") errors.push(msg.text()); });
   page.on("pageerror", (err) => errors.push("pageerror: " + err.message));
   page.on("request", (request) => {
@@ -78,8 +99,9 @@ const REPORT_FIXTURE = `# 测试公司 · 后端开发 面试准备包
 
   if (!REAL_RESEARCH) {
     await page.route("**/api/threads/*/runs/stream", async (route) => {
+      const isMatchingTurn = (route.request().postData() || "").includes("飞书 Base 岗位匹配");
       const body = `event: values\ndata: ${JSON.stringify({
-        messages: [{ type: "ai", content: REPORT_FIXTURE, additional_kwargs: {} }],
+        messages: [{ type: "ai", content: isMatchingTurn ? MATCH_REPORT_FIXTURE : REPORT_FIXTURE, additional_kwargs: {} }],
       })}\n\n`;
       await route.fulfill({
         status: 200,
@@ -90,6 +112,27 @@ const REPORT_FIXTURE = `# 测试公司 · 后端开发 面试准备包
           "Cache-Control": "no-cache",
         },
         body,
+      });
+    });
+    await page.route("**/api/jobscout/base-context", async (route) => {
+      baseContextRequests++;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json; charset=utf-8",
+        headers: {
+          "Access-Control-Allow-Credentials": "true",
+          "Access-Control-Allow-Origin": BASE,
+        },
+        body: JSON.stringify({
+          table_id: "tblJobs",
+          table_name: "校招岗位库",
+          view_id: "vewOpen",
+          fields: ["公司", "岗位", "任职要求"],
+          records: [{ record_id: "rec1", 公司: "示例科技", 岗位: "AI 产品经理", 任职要求: "Agent、RAG" }],
+          record_count: 1,
+          has_more: false,
+          context_truncated: false,
+        }),
       });
     });
   }
@@ -222,6 +265,33 @@ const REPORT_FIXTURE = `# 测试公司 · 后端开发 面试准备包
   }
   console.log("Downloaded file:", download.suggestedFilename(), "bytes:", downloaded.length);
   console.log("Downloaded file head:", downloaded.slice(0, 120).replace(/\n/g, " | "));
+
+  if (!REAL_RESEARCH) {
+    console.log("== deterministic Feishu Base matching flow ==");
+    await page.click("#newChatBtn");
+    await page.click("#matchModeBtn");
+    await page.fill("#baseUrlInput", "https://example.feishu.cn/base/test-token");
+    await page.setInputFiles("#composerFile", {
+      name: "resume.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("姓名：测试候选人\n技能：Agent、RAG\n", "utf-8"),
+    });
+    await page.fill("#composerInput", "优先 AI 产品经理岗位");
+    await page.click("#composerSend");
+    await page.waitForSelector(".report-row", { timeout: 15000 });
+    const matchText = await page.locator(".report-row").innerText();
+    if (!matchText.includes("简历 × 飞书岗位匹配报告") || !matchText.includes("rec1")) {
+      throw new Error("matching mode did not render the expected traceable result");
+    }
+    if (matchText.includes("一周上岸计划")) {
+      throw new Error("matching report exposed a section outside its output contract");
+    }
+    if (baseContextRequests !== 1) {
+      throw new Error(`expected one Base context request, got ${baseContextRequests}`);
+    }
+    await page.screenshot({ path: "shot-05-base-matching.png", fullPage: true });
+    console.log("== Base matching report rendered and sanitized ==");
+  }
 
   console.log("== console errors observed ==");
   console.log(errors.length ? errors.join("\n") : "(none)");

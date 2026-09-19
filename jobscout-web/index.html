@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>JobScout · 中国大陆求职面试准备</title>
+<title>JobScout · AI 求职调研与岗位匹配</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -27,7 +27,7 @@
   <section id="authView" class="view">
     <div class="card auth-card">
       <h1>登录 JobScout</h1>
-      <p class="muted">基于 DeerFlow 引擎的中国大陆求职面试准备助手。账号数据存在你本地的 DeerFlow 实例里。</p>
+      <p class="muted">基于 DeerFlow 引擎的 AI 求职调研与岗位匹配助手。账号数据存在你本地的 DeerFlow 实例里。</p>
       <form id="authForm">
         <label>邮箱
           <input type="email" id="authEmail" required autocomplete="username" />
@@ -63,6 +63,28 @@
           <strong>JobScout</strong>
           <span class="muted small" id="chatStatus"></span>
         </div>
+        <div class="mode-switch" role="group" aria-label="任务模式">
+          <button type="button" id="prepModeBtn" class="mode-btn active">面试准备</button>
+          <button type="button" id="matchModeBtn" class="mode-btn">岗位匹配</button>
+        </div>
+      </div>
+
+      <div id="matchPanel" class="match-panel hidden">
+        <div class="match-panel-copy">
+          <strong>简历 × 飞书岗位库</strong>
+          <span id="larkStatus" class="integration-status" data-state="pending">正在检查飞书连接...</span>
+        </div>
+        <div class="match-panel-input">
+          <input
+            type="url"
+            id="baseUrlInput"
+            inputmode="url"
+            autocomplete="off"
+            placeholder="粘贴飞书多维表格链接（Base / Wiki）"
+          />
+          <a href="http://localhost:3000/workspace/capabilities" target="_blank" rel="noopener">管理飞书连接</a>
+        </div>
+        <p class="field-hint">仅只读获取岗位相关字段；每次匹配还需要上传本轮简历。</p>
       </div>
 
       <div id="chatMessages" class="chat-messages"></div>

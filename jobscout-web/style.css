@@ -90,7 +90,7 @@ form label {
   margin-bottom: 14px;
   color: var(--text);
 }
-input[type="text"], input[type="email"], input[type="password"], textarea {
+input[type="text"], input[type="email"], input[type="password"], input[type="url"], textarea {
   width: 100%;
   margin-top: 6px;
   padding: 10px 12px;
@@ -254,6 +254,52 @@ input:focus, textarea:focus {
 .chat-header-title { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
 .chat-header-title strong { font-size: 15px; }
 #chatStatus { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+
+.mode-switch {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 10px;
+  background: #f0f2f6;
+}
+.mode-btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mode-btn.active {
+  background: #fff;
+  color: var(--accent-dark);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+.mode-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+.match-panel {
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--border);
+  background: #f8faff;
+  flex-shrink: 0;
+}
+.match-panel-copy,
+.match-panel-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.match-panel-copy { justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+.match-panel-input input { margin: 0; flex: 1; background: #fff; }
+.match-panel-input a { flex-shrink: 0; color: var(--accent); font-size: 12px; text-decoration: none; }
+.match-panel-input a:hover { text-decoration: underline; }
+.match-panel .field-hint { margin: 6px 0 0; }
+.integration-status { font-size: 12px; color: var(--text-muted); }
+.integration-status[data-state="ready"] { color: var(--success); }
+.integration-status[data-state="error"] { color: var(--error); }
 
 .chat-messages {
   flex: 1;
@@ -479,4 +525,6 @@ input:focus, textarea:focus {
   .report-doc-inline { padding: 20px 18px; }
   .report-doc-print { padding: 0 14px; margin: 20px auto; }
   .bubble { max-width: 88%; }
+  .chat-header { align-items: flex-start; gap: 10px; }
+  .match-panel-input { align-items: stretch; flex-direction: column; }
 }

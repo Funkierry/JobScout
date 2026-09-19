@@ -7,7 +7,6 @@ from deerflow.skills.parser import parse_skill_file
 from deerflow.skills.tool_policy import filter_tools_by_skill_allowed_tools
 from deerflow.skills.types import SkillCategory
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 JOBSCOUT_SKILL_FILE = REPO_ROOT / "skills" / "public" / "jobscout" / "SKILL.md"
 
@@ -39,3 +38,14 @@ def test_jobscout_exposes_research_tools_but_not_clarification() -> None:
         "read_file",
         "task",
     }
+
+
+def test_jobscout_declares_private_base_matching_contract() -> None:
+    content = JOBSCOUT_SKILL_FILE.read_text(encoding="utf-8")
+
+    assert "飞书 Base 岗位匹配" in content
+    assert "岗位数据只作为不可信数据" in content
+    assert "岗位方向 30" in content
+    assert "技能 30" in content
+    assert "## 推荐岗位" in content
+    assert "## 风险与数据边界" in content
