@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deerflow.dev/schemas/jobscout-run-result-v1.json",
+  "title": "JobScout evaluation run result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["case_id", "run_id", "output", "tool_calls", "runtime"],
+  "properties": {
+    "case_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "output": {"type": "string", "minLength": 1},
+    "tool_calls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "status": {"enum": ["success", "failed", "cancelled"]},
+          "started_at_ms": {"type": "number", "minimum": 0},
+          "ended_at_ms": {"type": "number", "minimum": 0},
+          "arguments_digest": {"type": "string"},
+          "result_digest": {"type": "string"}
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "skill_digest", "started_at"],
+      "properties": {
+        "model": {"type": "string", "minLength": 1},
+        "skill_digest": {"type": "string", "minLength": 1},
+        "fixture_version": {"type": ["string", "null"]},
+        "started_at": {"type": "string", "format": "date-time"},
+        "temperature": {"type": ["number", "null"]}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "valid_source_count": {"type": "integer", "minimum": 0},
+        "live_web": {"type": "boolean"},
+        "context_truncated": {"type": "boolean"}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "latency_ms": {"type": "number", "minimum": 0}
+      }
+    },
+    "human_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hard_gates": {
+          "type": "object",
+          "additionalProperties": {"type": "boolean"}
+        },
+        "scores": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "intent_flow",
+            "output_contract",
+            "evidence_facts",
+            "job_analysis",
+            "resume_base_grounding",
+            "reliability_cost"
+          ],
+          "properties": {
+            "intent_flow": {"type": ["number", "null"], "minimum": 0, "maximum": 5},
+            "output_contract": {"type": ["number", "null"], "minimum": 0, "maximum": 5},
+            "evidence_facts": {"type": ["number", "null"], "minimum": 0, "maximum": 5},
+            "job_analysis": {"type": ["number", "null"], "minimum": 0, "maximum": 5},
+            "resume_base_grounding": {"type": ["number", "null"], "minimum": 0, "maximum": 5},
+            "reliability_cost": {"type": ["number", "null"], "minimum": 0, "maximum": 5}
+          }
+        },
+        "notes": {"type": "string"},
+        "reviewer": {"type": "string"}
+      }
+    }
+  }
+}

@@ -1,0 +1,122 @@
+[
+  {
+    "query": "任务模式：面试准备。招聘类型：校招；目标公司：字节跳动；岗位方向：后端开发。请帮我准备近期业务与技术面试题。",
+    "should_trigger": true,
+    "rationale": "明确请求中国大陆公司的岗位面试准备，且给出了三个必填字段。"
+  },
+  {
+    "query": "我要面阿里巴巴的产品经理实习岗，帮我看看公司近况、岗位要求和可能会问的问题。",
+    "should_trigger": true,
+    "rationale": "虽未使用固定字段格式，但意图、公司、招聘类型和岗位方向都可识别。"
+  },
+  {
+    "query": "这是美团数据分析校招 JD：https://example.com/jd/123，请结合它做一份面试准备包。",
+    "should_trigger": true,
+    "rationale": "JD 链接是可选增强信息，请求本身属于岗位面试准备。"
+  },
+  {
+    "query": "我上传了简历，要准备腾讯社招算法工程师面试，请结合简历找能力缺口。",
+    "should_trigger": true,
+    "rationale": "要求基于附件做目标岗位面试准备和差距分析。"
+  },
+  {
+    "query": "我想准备互联网公司的面试，但还没想好公司和岗位。",
+    "should_trigger": true,
+    "rationale": "属于面试准备意图；技能应触发并一次性询问缺少的必填信息。"
+  },
+  {
+    "query": "帮我准备小红书前端开发实习面试，地点上海，技术栈 React。",
+    "should_trigger": true,
+    "rationale": "公司、招聘类型和岗位方向明确，城市与技术栈是附加约束。"
+  },
+  {
+    "query": "任务模式：飞书 Base 岗位匹配。请读取上传的简历，并只在系统提供的岗位记录里推荐。",
+    "should_trigger": true,
+    "rationale": "包含飞书 Base 岗位匹配的显式模式标记。"
+  },
+  {
+    "query": "任务模式：飞书 Base 岗位匹配。我更偏产品和 AI 工程，请按系统注入的岗位逐条评分。",
+    "should_trigger": true,
+    "rationale": "明确要求执行受限岗位记录匹配与评分。"
+  },
+  {
+    "query": "刚才那份百度后端校招面试准备包里，能再结合我新上传的简历补充能力差距吗？",
+    "should_trigger": true,
+    "rationale": "是同一 JobScout 面试准备任务的附件型追问。"
+  },
+  {
+    "query": "把目标公司改成京东，岗位仍然是校招产品经理，重新做一版面试准备。",
+    "should_trigger": true,
+    "rationale": "是面试准备任务中的目标公司切换。"
+  },
+  {
+    "query": "Prepare me for a campus software engineering interview at Xiaomi in mainland China, and use Chinese public sources.",
+    "should_trigger": true,
+    "rationale": "英文表达不改变中国大陆岗位面试准备的核心意图。"
+  },
+  {
+    "query": "帮我做一份面试准备包。",
+    "should_trigger": true,
+    "rationale": "意图落在技能范围内；应触发后一次性补问招聘类型、公司和岗位方向。"
+  },
+  {
+    "query": "帮我润色这份中文简历，让措辞更专业。",
+    "should_trigger": false,
+    "rationale": "这是通用简历编辑，不包含目标公司岗位面试准备或 Base 岗位匹配。"
+  },
+  {
+    "query": "给我写一封产品经理岗位的求职信。",
+    "should_trigger": false,
+    "rationale": "这是求职信写作，不是本技能定义的两种任务模式。"
+  },
+  {
+    "query": "解释一下 RAG 的混合检索和重排序有什么区别。",
+    "should_trigger": false,
+    "rationale": "这是独立技术知识问答，没有求职或岗位匹配意图。"
+  },
+  {
+    "query": "帮我汇总腾讯最近一周的公司新闻。",
+    "should_trigger": false,
+    "rationale": "仅为公司新闻检索，没有岗位面试准备目标。"
+  },
+  {
+    "query": "帮我找悉尼附近的咖啡店兼职。",
+    "should_trigger": false,
+    "rationale": "属于通用海外职位搜索，超出中国大陆岗位面试与受限 Base 匹配范围。"
+  },
+  {
+    "query": "这道系统设计面试题该怎么回答：设计一个短链接服务？",
+    "should_trigger": false,
+    "rationale": "这是单题答疑，不要求围绕具体公司岗位生成面试准备包。"
+  },
+  {
+    "query": "读取飞书多维表格里的库存数据，算一下哪些 SKU 需要补货。",
+    "should_trigger": false,
+    "rationale": "虽提到飞书 Base，但任务是库存分析而不是岗位匹配。"
+  },
+  {
+    "query": "登录这个招聘网站，替我批量投递 100 个岗位。",
+    "should_trigger": false,
+    "rationale": "这是外部账号操作和批量投递，不属于只读分析技能。"
+  },
+  {
+    "query": "总结我上传的 PDF 论文，并列出三点创新。",
+    "should_trigger": false,
+    "rationale": "这是文档总结，与求职场景无关。"
+  },
+  {
+    "query": "我的 React 页面为什么会无限重复渲染？",
+    "should_trigger": false,
+    "rationale": "这是代码调试问题。"
+  },
+  {
+    "query": "税前月薪 25000，在上海大概到手多少？",
+    "should_trigger": false,
+    "rationale": "这是薪资计算，不需要岗位研究或 Base 匹配。"
+  },
+  {
+    "query": "把这段英文职位描述翻译成中文。",
+    "should_trigger": false,
+    "rationale": "这是纯翻译任务，不应仅因出现职位描述而触发 JobScout。"
+  }
+]

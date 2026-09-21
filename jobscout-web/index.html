@@ -3,117 +3,210 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#f7f7f5" />
 <title>JobScout · AI 求职调研与岗位匹配</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<header class="topbar">
-  <div class="topbar-inner">
-    <div class="brand">
-      <span class="brand-mark">JS</span>
-      <span class="brand-name">JobScout</span>
-    </div>
-    <div id="userBox" class="user-box hidden">
-      <span id="userEmail"></span>
-      <button id="logoutBtn" class="link-btn">退出登录</button>
-    </div>
-  </div>
-</header>
+<!-- ===== 登录 / 注册 ===== -->
+<section id="authView" class="view auth-view">
+  <div class="auth-shell">
+    <section class="auth-story" aria-label="JobScout 产品介绍">
+      <a class="brand brand-on-dark" href="#" aria-label="JobScout 首页">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" role="img"><path d="M7 9.5 16 4l9 5.5v13L16 28l-9-5.5v-13Z"/><path d="m11.5 12.5 4.5-2.7 4.5 2.7v6L16 21.2l-4.5-2.7v-6Z"/></svg>
+        </span>
+        <span class="brand-name">JobScout</span>
+      </a>
 
-<main class="page">
-
-  <!-- ===== 登录/注册 ===== -->
-  <section id="authView" class="view">
-    <div class="card auth-card">
-      <h1>登录 JobScout</h1>
-      <p class="muted">基于 DeerFlow 引擎的 AI 求职调研与岗位匹配助手。账号数据存在你本地的 DeerFlow 实例里。</p>
-      <form id="authForm">
-        <label>邮箱
-          <input type="email" id="authEmail" required autocomplete="username" />
-        </label>
-        <label>密码
-          <input type="password" id="authPassword" required autocomplete="current-password" minlength="8" />
-          <span id="authPasswordHint" class="field-hint hidden">至少 8 位,且不能是过于常见的弱密码</span>
-        </label>
-        <div class="auth-actions">
-          <button type="submit" id="authSubmit" class="primary-btn">登录</button>
-          <button type="button" id="authToggle" class="link-btn">还没有账号?注册一个</button>
+      <div class="auth-story-content">
+        <span class="eyebrow">AI CAREER WORKSPACE</span>
+        <h1>把零散求职信息，<br />整理成清晰的下一步。</h1>
+        <p>从公司调研、岗位拆解到面试准备与简历匹配，在一个可追溯的 AI 工作台里完成。</p>
+        <div class="auth-feature-list">
+          <div class="auth-feature">
+            <span class="feature-index">01</span>
+            <div><strong>真实来源</strong><small>关键信息附带可核验的公开证据</small></div>
+          </div>
+          <div class="auth-feature">
+            <span class="feature-index">02</span>
+            <div><strong>完整路径</strong><small>调研、分析、准备与留存一次完成</small></div>
+          </div>
+          <div class="auth-feature">
+            <span class="feature-index">03</span>
+            <div><strong>为你匹配</strong><small>结合简历与私有岗位库给出解释</small></div>
+          </div>
         </div>
-        <p id="authError" class="error-text hidden"></p>
-      </form>
-    </div>
-  </section>
-
-  <!-- ===== 对话(主界面) ===== -->
-  <section id="chatView" class="view hidden chat-shell">
-
-    <aside class="sidebar">
-      <button type="button" id="newChatBtn" class="sidebar-new-btn">+ 新对话</button>
-      <div id="threadList" class="thread-list"></div>
-    </aside>
-
-    <div class="card chat-card chat-card-main" id="chatCard">
-      <div id="dropOverlay" class="drop-overlay hidden">
-        <div class="drop-overlay-inner">📄 松开鼠标上传文件</div>
       </div>
 
-      <div class="chat-header">
-        <div class="chat-header-title">
-          <strong>JobScout</strong>
-          <span class="muted small" id="chatStatus"></span>
+      <p class="auth-story-foot">Powered by DeerFlow · Your data stays in your own instance</p>
+    </section>
+
+    <section class="auth-panel">
+      <div class="auth-panel-inner">
+        <div class="auth-mobile-brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32"><path d="M7 9.5 16 4l9 5.5v13L16 28l-9-5.5v-13Z"/><path d="m11.5 12.5 4.5-2.7 4.5 2.7v6L16 21.2l-4.5-2.7v-6Z"/></svg>
+          </span>
+          <span class="brand-name">JobScout</span>
         </div>
+        <div class="auth-heading">
+          <span class="eyebrow eyebrow-dark">WELCOME BACK</span>
+          <h2>登录你的求职工作台</h2>
+          <p>继续之前的调研、面试准备与岗位匹配。</p>
+        </div>
+        <form id="authForm" class="auth-form">
+          <label for="authEmail">邮箱
+            <input type="email" id="authEmail" required autocomplete="username" placeholder="name@example.com" />
+          </label>
+          <label for="authPassword">密码
+            <input type="password" id="authPassword" required autocomplete="current-password" minlength="8" placeholder="至少 8 位" />
+            <span id="authPasswordHint" class="field-hint hidden">至少 8 位，且不能是过于常见的弱密码</span>
+          </label>
+          <button type="submit" id="authSubmit" class="primary-btn auth-submit">登录</button>
+          <button type="button" id="authToggle" class="link-btn auth-toggle">还没有账号？注册一个</button>
+          <p id="authError" class="error-text hidden" role="alert"></p>
+        </form>
+        <p class="auth-privacy">账号与会话数据仅保存在你的 DeerFlow 实例中。</p>
+      </div>
+    </section>
+  </div>
+</section>
+
+<!-- ===== 主工作台 ===== -->
+<section id="chatView" class="view hidden app-shell">
+  <button type="button" id="sidebarBackdrop" class="sidebar-backdrop" aria-label="关闭侧边栏"></button>
+
+  <aside id="appSidebar" class="sidebar" aria-label="主导航">
+    <div class="sidebar-header">
+      <a class="brand" href="#" aria-label="JobScout 首页">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><path d="M7 9.5 16 4l9 5.5v13L16 28l-9-5.5v-13Z"/><path d="m11.5 12.5 4.5-2.7 4.5 2.7v6L16 21.2l-4.5-2.7v-6Z"/></svg>
+        </span>
+        <span class="brand-name">JobScout</span>
+      </a>
+      <button type="button" id="sidebarCloseBtn" class="icon-btn sidebar-close" aria-label="关闭侧边栏">
+        <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+
+    <button type="button" id="newChatBtn" class="sidebar-new-btn">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span>新建调研</span>
+      <kbd>⌘ K</kbd>
+    </button>
+
+    <nav class="sidebar-nav" aria-label="任务类型">
+      <button type="button" id="sidebarPrepBtn" class="sidebar-nav-item active">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12.5M8 9h8M8 13h5M3 19h18"/></svg>
+        <span><strong>面试准备</strong><small>公司与岗位深度调研</small></span>
+      </button>
+      <button type="button" id="sidebarMatchBtn" class="sidebar-nav-item">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 11l2 2 4-4"/></svg>
+        <span><strong>岗位匹配</strong><small>简历 × 飞书岗位库</small></span>
+      </button>
+    </nav>
+
+    <section class="sidebar-history" aria-label="历史对话">
+      <div class="sidebar-section-title">
+        <span>最近对话</span>
+        <span id="threadCount" class="thread-count"></span>
+      </div>
+      <label class="thread-search" for="threadSearch">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+        <input id="threadSearch" type="search" autocomplete="off" placeholder="搜索历史对话" />
+      </label>
+      <div id="threadList" class="thread-list"></div>
+    </section>
+
+    <div id="userBox" class="user-box hidden">
+      <span id="userAvatar" class="user-avatar" aria-hidden="true">J</span>
+      <span class="user-meta"><strong id="userEmail">已登录</strong><small>个人工作区</small></span>
+      <button id="logoutBtn" class="icon-btn logout-btn" type="button" title="退出登录" aria-label="退出登录">
+        <svg viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <main class="workspace">
+    <header class="workspace-header">
+      <div class="workspace-heading-wrap">
+        <button type="button" id="sidebarToggle" class="icon-btn sidebar-toggle" aria-label="打开侧边栏">
+          <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <div class="workspace-heading">
+          <div class="workspace-title-row">
+            <h1 id="workspaceTitle">面试准备</h1>
+            <span class="workspace-badge">AI workspace</span>
+          </div>
+          <p id="workspaceSubtitle">基于公开证据完成公司调研、岗位拆解与面试题预测</p>
+        </div>
+      </div>
+
+      <div class="workspace-actions">
+        <span class="live-status"><i></i><span id="chatStatus">准备就绪</span></span>
         <div class="mode-switch" role="group" aria-label="任务模式">
           <button type="button" id="prepModeBtn" class="mode-btn active">面试准备</button>
           <button type="button" id="matchModeBtn" class="mode-btn">岗位匹配</button>
         </div>
       </div>
+    </header>
 
-      <div id="matchPanel" class="match-panel hidden">
+    <div id="matchPanel" class="match-panel hidden">
+      <div class="match-panel-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 11l2 2 4-4"/></svg>
+      </div>
+      <div class="match-panel-content">
         <div class="match-panel-copy">
-          <strong>简历 × 飞书岗位库</strong>
+          <div><strong>简历 × 飞书岗位库</strong><span>读取你有权访问的岗位记录并生成匹配解释</span></div>
           <span id="larkStatus" class="integration-status" data-state="pending">正在检查飞书连接...</span>
         </div>
         <div class="match-panel-input">
-          <input
-            type="url"
-            id="baseUrlInput"
-            inputmode="url"
-            autocomplete="off"
-            placeholder="粘贴飞书多维表格链接（Base / Wiki）"
-          />
-          <a href="http://localhost:3000/workspace/capabilities" target="_blank" rel="noopener">管理飞书连接</a>
+          <input type="url" id="baseUrlInput" inputmode="url" autocomplete="off" placeholder="粘贴飞书多维表格链接（Base / Wiki）" />
+          <a href="http://localhost:3000/workspace/capabilities" target="_blank" rel="noopener">管理连接</a>
         </div>
-        <p class="field-hint">仅只读获取岗位相关字段；每次匹配还需要上传本轮简历。</p>
+        <p class="field-hint">仅只读获取岗位相关字段；每次匹配仍需上传本轮简历。</p>
+      </div>
+    </div>
+
+    <section class="conversation" id="chatCard" aria-label="JobScout 对话">
+      <div id="dropOverlay" class="drop-overlay hidden">
+        <div class="drop-overlay-inner">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>
+          <strong>松开即可上传简历</strong>
+          <span>支持 PDF、Word、TXT 与 Markdown</span>
+        </div>
       </div>
 
-      <div id="chatMessages" class="chat-messages"></div>
+      <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
 
-      <div class="composer">
-        <button type="button" id="attachBtn" class="attach-btn" title="上传简历(PDF / Word / TXT / Markdown)">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
-        </button>
-        <input type="file" id="composerFile" accept=".pdf,.doc,.docx,.txt,.md" hidden />
-
-        <div class="composer-body">
+      <div class="composer-shell">
+        <div class="composer" aria-label="消息输入区">
           <div id="attachedChip" class="attached-chip hidden">
+            <span class="attached-file-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6"/></svg>
+            </span>
             <span id="attachedChipText"></span>
             <button type="button" id="attachedChipRemove" aria-label="移除附件">&times;</button>
           </div>
+
           <form id="composerForm" class="composer-form">
-            <textarea
-              id="composerInput"
-              rows="1"
-              placeholder="说说你想准备哪家公司、什么岗位(校招/社招/实习),可以贴 JD 或链接... (Enter 发送,Shift+Enter 换行)"
-            ></textarea>
-            <button type="submit" id="composerSend" class="primary-btn">发送</button>
+            <button type="button" id="attachBtn" class="composer-icon-btn" title="上传简历（PDF / Word / TXT / Markdown）" aria-label="上传简历">
+              <svg viewBox="0 0 24 24"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>
+            </button>
+            <input type="file" id="composerFile" accept=".pdf,.doc,.docx,.txt,.md" hidden />
+            <textarea id="composerInput" rows="1" placeholder="输入公司、岗位与招聘类型，也可以粘贴 JD…" aria-label="给 JobScout 发送消息"></textarea>
+            <button type="submit" id="composerSend" class="send-btn" aria-label="发送消息" title="发送">
+              <svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+            </button>
           </form>
         </div>
+        <p class="composer-note">JobScout 可能会出错，重要信息请打开来源核验。</p>
       </div>
-    </div>
-  </section>
-
-</main>
+    </section>
+  </main>
+</section>
 
 <script src="app.js"></script>
 </body>

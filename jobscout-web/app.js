@@ -65,24 +65,18 @@ async function checkSession() {
   return false;
 }
 
-const WELCOME_MESSAGE =
-  "你好,我是 JobScout —— 面向中国大陆求职者的 AI 求职助手。你可以在右上角选择「面试准备」或「岗位匹配」。\n\n" +
-  "告诉我你想准备**哪家公司**、**什么岗位**、**校招 / 社招 / 实习**,可以贴 JD 原文或链接,也可以点 " +
-  "左下角回形针上传简历(用于差距分析)。一句话触发,我会自动跑完整套调研:\n\n" +
-  "- **公司速览** —— 业务、产品、近期新闻、融资情况\n" +
-  "- **岗位拆解** —— 解析 JD,提取必备/加分技能与核心职责,核对公司真实技术栈\n" +
-  "- **面试题预测** —— 该公司/岗位高频面试题,技术题 + 行为题,均带来源\n" +
-  "- **差距分析** —— 拿你的简历对比 JD,指出优势、短板,给 3-5 条具体准备建议\n\n" +
-  "在「岗位匹配」模式中,上传简历并粘贴有权访问的飞书多维表格链接,我会按统一口径筛选并解释推荐结果。";
-
 let hasShownWelcome = false;
 
 function onLoggedIn() {
   $("userBox").classList.remove("hidden");
   $("userEmail").textContent = currentUserEmail;
+  if ($("userAvatar")) {
+    const identity = String(currentUserEmail || "J").split("@")[0].trim();
+    $("userAvatar").textContent = (identity.slice(0, 2) || "J").toUpperCase();
+  }
   show("chatView");
   if (!hasShownWelcome) {
-    addChatBubble("assistant", WELCOME_MESSAGE);
+    renderWelcomeState();
     hasShownWelcome = true;
   }
   loadThreadList();
@@ -187,6 +181,100 @@ let historyDraft = ""; // whatever the user had typed before they started naviga
 
 // ------------------------------------------------------------- chat ui --
 
+const WELCOME_PROMPTS = {
+  prep: [
+    {
+      title: "准备目标公司的面试",
+      detail: "从业务、岗位到高频问题，生成带来源的准备包",
+      prompt: "帮我准备字节跳动 AI 产品经理的校招面试，重点关注 Agent 与大模型产品能力。",
+    },
+    {
+      title: "拆解一份岗位 JD",
+      detail: "识别核心职责、必备能力、技术栈与隐含要求",
+      prompt: "请帮我拆解这份岗位 JD，提炼核心职责、必备能力、加分项和可能的面试重点：\n",
+    },
+    {
+      title: "分析简历与岗位差距",
+      detail: "上传简历后，定位优势、风险与具体补强方向",
+      prompt: "请结合我上传的简历，分析我与目标岗位的匹配点、主要差距和优先准备建议。",
+    },
+    {
+      title: "快速调研一家企业",
+      detail: "整理业务版图、核心产品、近期动态与招聘方向",
+      prompt: "请调研这家公司的核心业务、主要产品、近期动态和相关岗位招聘方向：",
+    },
+  ],
+  match: [
+    {
+      title: "匹配 AI 产品岗位",
+      detail: "结合简历，从飞书岗位库中筛选并解释推荐结果",
+      prompt: "优先匹配 AI 产品经理、Agent 产品经理或技术产品经理岗位。",
+    },
+    {
+      title: "按城市与工作方式筛选",
+      detail: "补充城市、远程偏好或可接受的工作地点",
+      prompt: "优先考虑悉尼、上海、深圳或支持远程的岗位。",
+    },
+    {
+      title: "强调技术匹配度",
+      detail: "重点比较 AI、数据、全栈与模型评估相关要求",
+      prompt: "匹配时重点关注 Agent、RAG、多模态、数据分析和模型评估能力。",
+    },
+    {
+      title: "寻找高潜力岗位",
+      detail: "兼顾当前匹配度、成长空间与能力迁移成本",
+      prompt: "请兼顾当前匹配度与成长空间，找出最值得优先申请的岗位。",
+    },
+  ],
+};
+
+function renderWelcomeState() {
+  const container = $("chatMessages");
+  if (!container) return;
+  const prompts = WELCOME_PROMPTS[currentMode] || WELCOME_PROMPTS.prep;
+  const lead = currentMode === "match"
+    ? "上传本轮简历并连接你的飞书岗位表，我会按统一口径比较岗位要求、匹配证据与关键差距。"
+    : "告诉我目标公司、岗位和招聘类型。我会并行完成公司调研、岗位拆解和面试题预测，并保留每条关键信息的来源。";
+  const heading = currentMode === "match" ? "从岗位库里，找到更适合你的机会" : "今天想准备哪家公司和岗位？";
+  container.innerHTML = `
+    <section id="welcomeState" class="welcome-state" aria-label="开始新的 JobScout 任务">
+      <div class="welcome-kicker">
+        <span class="welcome-symbol" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><path d="M7 9.5 16 4l9 5.5v13L16 28l-9-5.5v-13Z"/><path d="m11.5 12.5 4.5-2.7 4.5 2.7v6L16 21.2l-4.5-2.7v-6Z"/></svg>
+        </span>
+        <span>JobScout intelligence</span>
+      </div>
+      <h2>${heading}</h2>
+      <p class="welcome-lead">${lead}</p>
+      <div class="prompt-grid">
+        ${prompts.map((item) => `
+          <button type="button" class="prompt-card" data-prompt="${escapeHtml(item.prompt)}">
+            <strong>${item.title}</strong>
+            <span>${item.detail}</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+        `).join("")}
+      </div>
+      <div class="welcome-capabilities" aria-label="产品能力">
+        <span>公开来源可追溯</span><span>PDF / Word 简历解析</span><span>8+4 面试题</span><span>报告导出</span>
+      </div>
+    </section>`;
+
+  container.querySelectorAll(".prompt-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      const input = $("composerInput");
+      input.value = card.dataset.prompt || "";
+      autoGrowComposer();
+      input.focus();
+      requestAnimationFrame(() => input.setSelectionRange(input.value.length, input.value.length));
+    });
+  });
+}
+
+function removeWelcomeState() {
+  $("welcomeState")?.remove();
+}
+
 function resetChat() {
   activeThreadId = null;
   clearAttachment();
@@ -195,20 +283,32 @@ function resetChat() {
   sentHistory = [];
   historyIndex = -1;
   historyDraft = "";
+  if ($("chatStatus")) $("chatStatus").textContent = "准备就绪";
   autoGrowComposer();
-  addChatBubble("assistant", WELCOME_MESSAGE);
+  renderWelcomeState();
 }
 
 function setMode(mode) {
   currentMode = mode === "match" ? "match" : "prep";
   $("prepModeBtn")?.classList.toggle("active", currentMode === "prep");
   $("matchModeBtn")?.classList.toggle("active", currentMode === "match");
+  $("sidebarPrepBtn")?.classList.toggle("active", currentMode === "prep");
+  $("sidebarMatchBtn")?.classList.toggle("active", currentMode === "match");
   $("matchPanel")?.classList.toggle("hidden", currentMode !== "match");
+  if ($("workspaceTitle")) {
+    $("workspaceTitle").textContent = currentMode === "match" ? "岗位匹配" : "面试准备";
+  }
+  if ($("workspaceSubtitle")) {
+    $("workspaceSubtitle").textContent = currentMode === "match"
+      ? "结合简历与私有岗位库，生成可解释的岗位推荐"
+      : "基于公开证据完成公司调研、岗位拆解与面试题预测";
+  }
   if ($("composerInput")) {
     $("composerInput").placeholder = currentMode === "match"
-      ? "可选：补充目标城市、岗位方向、工作方式等偏好... (Enter 发送)"
-      : "说说你想准备哪家公司、什么岗位(校招/社招/实习),可以贴 JD 或链接... (Enter 发送,Shift+Enter 换行)";
+      ? "补充目标城市、岗位方向或工作方式等偏好…"
+      : "输入公司、岗位与招聘类型，也可以粘贴 JD…";
   }
+  if ($("welcomeState")) renderWelcomeState();
 }
 
 async function loadLarkStatus() {
@@ -235,7 +335,44 @@ function setupModeSwitcher() {
     setMode("match");
     loadLarkStatus();
   });
+  $("sidebarPrepBtn")?.addEventListener("click", () => {
+    setMode("prep");
+    closeSidebar();
+    $("composerInput")?.focus();
+  });
+  $("sidebarMatchBtn")?.addEventListener("click", () => {
+    setMode("match");
+    loadLarkStatus();
+    closeSidebar();
+    $("composerInput")?.focus();
+  });
   setMode("prep");
+}
+
+function openSidebar() {
+  $("chatView")?.classList.add("sidebar-open");
+}
+
+function closeSidebar() {
+  $("chatView")?.classList.remove("sidebar-open");
+}
+
+function setupSidebarShell() {
+  $("sidebarToggle")?.addEventListener("click", openSidebar);
+  $("sidebarCloseBtn")?.addEventListener("click", closeSidebar);
+  $("sidebarBackdrop")?.addEventListener("click", closeSidebar);
+  $("threadSearch")?.addEventListener("input", renderThreadList);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeSidebar();
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      resetChat();
+      renderThreadList();
+      closeSidebar();
+      $("composerInput")?.focus();
+    }
+  });
 }
 
 function scrollChatToBottom() {
@@ -246,6 +383,7 @@ function scrollChatToBottom() {
 /** Render a chat bubble. `text` is treated as inline-markdown (bold/links),
  *  not a full document — this is the conversational layer, not the report. */
 function addChatBubble(role, text) {
+  removeWelcomeState();
   const wrap = document.createElement("div");
   wrap.className = `bubble-row ${role}`;
   const bubble = document.createElement("div");
@@ -259,6 +397,7 @@ function addChatBubble(role, text) {
 
 function showThinking() {
   hideThinking();
+  removeWelcomeState();
   const wrap = document.createElement("div");
   wrap.className = "bubble-row assistant";
   wrap.id = "thinkingBubbleRow";
@@ -350,7 +489,7 @@ function clearAttachment() {
  *  card — one file attaches at a time, same as a normal chat app. */
 function setPendingFile(file) {
   pendingFile = file;
-  $("attachedChipText").textContent = `📄 ${file.name}`;
+  $("attachedChipText").textContent = file.name;
   $("attachedChip").classList.remove("hidden");
 }
 
@@ -430,6 +569,8 @@ function setComposerBusy(busy) {
   if ($("baseUrlInput")) $("baseUrlInput").disabled = busy;
   if ($("prepModeBtn")) $("prepModeBtn").disabled = busy;
   if ($("matchModeBtn")) $("matchModeBtn").disabled = busy;
+  if ($("sidebarPrepBtn")) $("sidebarPrepBtn").disabled = busy;
+  if ($("sidebarMatchBtn")) $("sidebarMatchBtn").disabled = busy;
 }
 
 function setupComposer() {
@@ -856,6 +997,7 @@ function openPrintWindow(html) {
 }
 
 function renderReport(markdown) {
+  removeWelcomeState();
   const sanitizedMarkdown = sanitizeJobScoutReportMarkdown(markdown);
   const html = markdownToHtml(normalizeReportMarkdownForRender(sanitizedMarkdown));
 
@@ -892,6 +1034,8 @@ function wireNewChatButton() {
     resetChat();
     renderThreadList();
     show("chatView");
+    closeSidebar();
+    $("composerInput")?.focus();
   });
 }
 
@@ -927,20 +1071,29 @@ function renderThreadList() {
   const container = $("threadList");
   if (!container) return;
   container.innerHTML = "";
-  if (!threadListCache.length) {
+  const query = ($("threadSearch")?.value || "").trim().toLowerCase();
+  const visibleThreads = threadListCache.filter((thread) => {
+    const title = thread.values?.title || "未命名对话";
+    return !query || title.toLowerCase().includes(query);
+  });
+  if ($("threadCount")) {
+    $("threadCount").textContent = threadListCache.length ? String(threadListCache.length) : "";
+  }
+  if (!visibleThreads.length) {
     const empty = document.createElement("div");
     empty.className = "thread-empty muted small";
-    empty.textContent = "还没有历史对话";
+    empty.textContent = threadListCache.length ? "没有匹配的对话" : "还没有历史对话";
     container.appendChild(empty);
     return;
   }
-  for (const t of threadListCache) {
+  for (const t of visibleThreads) {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "thread-item" + (t.thread_id === activeThreadId ? " active" : "");
     const title = t.values?.title || "未命名对话";
     item.textContent = title;
     item.title = title;
+    item.setAttribute("aria-pressed", t.thread_id === activeThreadId ? "true" : "false");
     item.addEventListener("click", () => selectThread(t.thread_id));
     container.appendChild(item);
   }
@@ -949,6 +1102,7 @@ function renderThreadList() {
 async function selectThread(threadId) {
   if (threadId === activeThreadId) return;
   activeThreadId = threadId;
+  closeSidebar();
   clearAttachment();
   $("chatMessages").innerHTML = "";
   sentHistory = [];
@@ -971,7 +1125,7 @@ async function selectThread(threadId) {
 function renderHistoryMessages(messages) {
   const visible = (messages || []).filter((m) => !m?.additional_kwargs?.hide_from_ui);
   if (!visible.length) {
-    addChatBubble("assistant", WELCOME_MESSAGE);
+    renderWelcomeState();
     return;
   }
   visible.forEach((m, i) => {
@@ -1104,6 +1258,7 @@ if (typeof document !== "undefined") {
   setupAuthForm();
   setupComposer();
   setupModeSwitcher();
+  setupSidebarShell();
   wireNewChatButton();
   checkSession();
 }

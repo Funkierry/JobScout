@@ -308,3 +308,7 @@ JD：{JD 原文或状态}
 - 补传简历：保留已有调研，只新增差距分析。
 - 要求取消来源、编造经历或绕过登录限制：拒绝。
 - 与求职无关：不执行工具，建议新开普通对话。
+
+## 维护者评测
+
+离线维护时使用 `evals/trigger_eval_set.json` 检查触发边界，使用 `evals/behavior_eval_set.json` 检查行为契约，并用 `scripts/grade_runs.py` 汇总运行结果；风险分层、评分门槛、数据格式与量级估算见 [references/evaluation.md](references/evaluation.md)。这些资源只用于技能评测，不属于用户侧报告内容。
