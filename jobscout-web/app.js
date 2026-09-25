@@ -4,6 +4,41 @@
 
 const GATEWAY_BASE = "http://localhost:8001";
 
+const TERMINAL_TRACKER_STATUSES = new Set(["Offer", "未通过", "流程终止"]);
+
+function isTerminalTrackerStatus(status) {
+  return TERMINAL_TRACKER_STATUSES.has(status);
+}
+
+function trackerRowPresentation(row) {
+  const terminal = Boolean(row?.terminal) || isTerminalTrackerStatus(row?.status);
+  const needsReview = Boolean(row?.checked_at) && Number(row?.confidence) < 0.7;
+  const changed = Boolean(row?.changed && row?.previous_status);
+  return {
+    terminal,
+    canRefresh: !terminal,
+    needsReview,
+    changeText: changed ? `${row.previous_status} → ${row.status}` : "",
+    tone: changed ? "changed" : (needsReview ? "review" : "normal"),
+  };
+}
+
+function parseSseFrames(buffer) {
+  const normalized = String(buffer || "").replace(/\r\n/g, "\n");
+  const frames = normalized.split("\n\n");
+  const remainder = frames.pop() || "";
+  const events = [];
+  for (const frame of frames) {
+    const data = frame
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (data) events.push(JSON.parse(data));
+  }
+  return { events, remainder };
+}
+
 // ---------------------------------------------------------------- helpers --
 
 function $(id) { return document.getElementById(id); }
@@ -151,6 +186,8 @@ let chatStartTime = null;
 let chatTimerHandle = null;
 let pendingFile = null;
 let currentMode = "prep";
+let trackerRows = [];
+let trackerBusy = false;
 
 function buildBaseMatchPrompt({ userText = "", baseContext }) {
   const compactContext = {
@@ -289,26 +326,34 @@ function resetChat() {
 }
 
 function setMode(mode) {
-  currentMode = mode === "match" ? "match" : "prep";
+  currentMode = ["match", "tracker"].includes(mode) ? mode : "prep";
   $("prepModeBtn")?.classList.toggle("active", currentMode === "prep");
   $("matchModeBtn")?.classList.toggle("active", currentMode === "match");
+  $("trackerModeBtn")?.classList.toggle("active", currentMode === "tracker");
   $("sidebarPrepBtn")?.classList.toggle("active", currentMode === "prep");
   $("sidebarMatchBtn")?.classList.toggle("active", currentMode === "match");
+  $("sidebarTrackerBtn")?.classList.toggle("active", currentMode === "tracker");
   $("matchPanel")?.classList.toggle("hidden", currentMode !== "match");
+  $("trackerPanel")?.classList.toggle("hidden", currentMode !== "tracker");
+  $("chatCard")?.classList.toggle("hidden", currentMode === "tracker");
   if ($("workspaceTitle")) {
-    $("workspaceTitle").textContent = currentMode === "match" ? "岗位匹配" : "面试准备";
+    $("workspaceTitle").textContent = currentMode === "tracker"
+      ? "进度追踪"
+      : (currentMode === "match" ? "岗位匹配" : "面试准备");
   }
   if ($("workspaceSubtitle")) {
-    $("workspaceSubtitle").textContent = currentMode === "match"
-      ? "结合简历与私有岗位库，生成可解释的岗位推荐"
-      : "基于公开证据完成公司调研、岗位拆解与面试题预测";
+    $("workspaceSubtitle").textContent = currentMode === "tracker"
+      ? "集中查看投递状态、变化记录与待人工确认项"
+      : (currentMode === "match"
+        ? "结合简历与私有岗位库，生成可解释的岗位推荐"
+        : "基于公开证据完成公司调研、岗位拆解与面试题预测");
   }
-  if ($("composerInput")) {
+  if ($("composerInput") && currentMode !== "tracker") {
     $("composerInput").placeholder = currentMode === "match"
       ? "补充目标城市、岗位方向或工作方式等偏好…"
       : "输入公司、岗位与招聘类型，也可以粘贴 JD…";
   }
-  if ($("welcomeState")) renderWelcomeState();
+  if ($("welcomeState") && currentMode !== "tracker") renderWelcomeState();
 }
 
 async function loadLarkStatus() {
@@ -335,6 +380,10 @@ function setupModeSwitcher() {
     setMode("match");
     loadLarkStatus();
   });
+  $("trackerModeBtn")?.addEventListener("click", () => {
+    setMode("tracker");
+    loadTrackerApplications();
+  });
   $("sidebarPrepBtn")?.addEventListener("click", () => {
     setMode("prep");
     closeSidebar();
@@ -346,7 +395,231 @@ function setupModeSwitcher() {
     closeSidebar();
     $("composerInput")?.focus();
   });
+  $("sidebarTrackerBtn")?.addEventListener("click", () => {
+    setMode("tracker");
+    loadTrackerApplications();
+    closeSidebar();
+  });
   setMode("prep");
+}
+
+function formatTrackerDate(value, dateOnly = false) {
+  if (!value) return "—";
+  if (dateOnly) return String(value);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
+function trackerElement(tag, className, text) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text !== undefined) element.textContent = text;
+  return element;
+}
+
+function showTrackerError(message = "") {
+  const target = $("trackerError");
+  if (!target) return;
+  target.textContent = message;
+  target.classList.toggle("hidden", !message);
+}
+
+function setTrackerBusy(busy) {
+  trackerBusy = busy;
+  for (const id of ["trackerImportBtn", "trackerRefreshAllBtn", "trackerCsvInput"]) {
+    if ($(id)) $(id).disabled = busy;
+  }
+  renderTrackerRows();
+}
+
+function setTrackerProgress(text, completed = 0, total = 0, visible = true) {
+  $("trackerProgress")?.classList.toggle("hidden", !visible);
+  if ($("trackerProgressText")) $("trackerProgressText").textContent = text;
+  if ($("trackerProgressCount")) $("trackerProgressCount").textContent = `${completed} / ${total}`;
+  if ($("trackerProgressBar")) {
+    const percentage = total > 0 ? Math.min(100, Math.max(0, (completed / total) * 100)) : 0;
+    $("trackerProgressBar").style.width = `${percentage}%`;
+  }
+}
+
+function renderTrackerRows() {
+  const body = $("trackerTableBody");
+  if (!body) return;
+  body.replaceChildren();
+  $("trackerEmpty")?.classList.toggle("hidden", trackerRows.length > 0);
+  $("trackerTableWrap")?.classList.toggle("hidden", trackerRows.length === 0);
+
+  for (const row of trackerRows) {
+    const presentation = trackerRowPresentation(row);
+    const tableRow = trackerElement("tr", `tracker-row tracker-row-${presentation.tone}`);
+    if (presentation.needsReview) tableRow.classList.add("tracker-row-review");
+
+    const identityCell = trackerElement("td", "tracker-identity");
+    const link = trackerElement("a", "tracker-company", row.company);
+    link.href = row.url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    identityCell.append(link, trackerElement("span", "tracker-role", row.role));
+    if (row.notes) identityCell.append(trackerElement("small", "tracker-notes", row.notes));
+
+    const appliedCell = trackerElement("td", "tracker-date", formatTrackerDate(row.applied_at, true));
+    const statusCell = trackerElement("td", "tracker-status-cell");
+    statusCell.append(trackerElement("span", "tracker-status-pill", row.status));
+    if (presentation.changeText) {
+      statusCell.append(trackerElement("small", "tracker-change", presentation.changeText));
+    } else if (row.raw_status) {
+      const raw = trackerElement("small", "tracker-raw", row.raw_status);
+      if (row.evidence) raw.title = row.evidence;
+      statusCell.append(raw);
+    }
+
+    const confidenceCell = trackerElement("td", "tracker-confidence");
+    confidenceCell.append(trackerElement(
+      "strong",
+      "",
+      row.checked_at ? `${Math.round(Number(row.confidence) * 100)}%` : "—",
+    ));
+    if (presentation.needsReview) {
+      confidenceCell.append(trackerElement("small", "tracker-review-label", "需人工确认"));
+    }
+
+    const checkedCell = trackerElement("td", "tracker-checked");
+    checkedCell.append(trackerElement("span", "", formatTrackerDate(row.checked_at)));
+    if (row.check_result) {
+      checkedCell.append(trackerElement(
+        "small",
+        row.check_result === "成功" ? "tracker-result-ok" : "tracker-result-error",
+        row.check_result,
+      ));
+    }
+
+    const actionCell = trackerElement("td", "tracker-row-action");
+    const refreshButton = trackerElement("button", "tracker-refresh-btn", presentation.terminal ? "已结束" : "刷新");
+    refreshButton.type = "button";
+    refreshButton.disabled = trackerBusy || !presentation.canRefresh;
+    refreshButton.addEventListener("click", () => refreshTrackerRow(row.id));
+    actionCell.append(refreshButton);
+
+    tableRow.append(identityCell, appliedCell, statusCell, confidenceCell, checkedCell, actionCell);
+    body.append(tableRow);
+  }
+}
+
+async function loadTrackerApplications() {
+  showTrackerError();
+  try {
+    const rows = await apiJson("/api/jobscout/tracker/applications");
+    trackerRows = Array.isArray(rows) ? rows : [];
+    renderTrackerRows();
+    if ($("chatStatus")) $("chatStatus").textContent = `${trackerRows.length} 条投递记录`;
+  } catch (error) {
+    showTrackerError(error.message || String(error));
+  }
+}
+
+async function importTrackerCsv() {
+  const input = $("trackerCsvInput");
+  const file = input?.files?.[0];
+  if (!file) return;
+  setTrackerBusy(true);
+  showTrackerError();
+  setTrackerProgress(`正在导入 ${file.name}`, 0, 0, true);
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const summary = await apiJson("/api/jobscout/tracker/import", { method: "POST", form });
+    await loadTrackerApplications();
+    setTrackerProgress(`导入完成：新增 ${summary.inserted}，更新 ${summary.updated}`, summary.total, summary.total, true);
+  } catch (error) {
+    showTrackerError(error.message || String(error));
+    setTrackerProgress("导入失败", 0, 0, true);
+  } finally {
+    input.value = "";
+    setTrackerBusy(false);
+  }
+}
+
+async function refreshTrackerRow(applicationId) {
+  setTrackerBusy(true);
+  showTrackerError();
+  const current = trackerRows.find((row) => row.id === applicationId);
+  setTrackerProgress(`正在检查 ${current?.company || "该岗位"}`, 0, 1, true);
+  try {
+    const outcome = await apiJson(`/api/jobscout/tracker/applications/${applicationId}/refresh`, { method: "POST" });
+    trackerRows = trackerRows.map((row) => row.id === applicationId ? outcome.application : row);
+    renderTrackerRows();
+    setTrackerProgress(outcome.skipped ? "该岗位已是终态，已跳过" : "检查完成", 1, 1, true);
+  } catch (error) {
+    showTrackerError(error.message || String(error));
+    setTrackerProgress("检查失败", 0, 1, true);
+  } finally {
+    setTrackerBusy(false);
+  }
+}
+
+function applyTrackerProgressEvent(event) {
+  const completed = Number(event.completed || 0);
+  const total = Number(event.total || 0);
+  if (event.type === "batch_started") {
+    setTrackerProgress(total ? "准备逐条检查" : "没有需要更新的记录", 0, total, true);
+  } else if (event.type === "row_started") {
+    setTrackerProgress(`正在检查 ${event.company || "当前岗位"}（第 ${event.index} 条 / 共 ${total} 条）`, completed, total, true);
+  } else if (event.type === "browser") {
+    setTrackerProgress(event.message || `正在检查 ${event.company || "当前岗位"}`, completed, total, true);
+  } else if (event.type === "row_completed") {
+    if (event.application) {
+      trackerRows = trackerRows.map((row) => row.id === event.application.id ? event.application : row);
+      renderTrackerRows();
+    }
+    setTrackerProgress(`${event.company || "当前岗位"}检查完成`, completed, total, true);
+  } else if (event.type === "row_failed") {
+    setTrackerProgress(`${event.company || "当前岗位"}检查失败，继续下一条`, completed, total, true);
+  } else if (event.type === "batch_completed") {
+    setTrackerProgress(`更新完成，共处理 ${completed} 条`, completed, total, true);
+  }
+}
+
+async function refreshAllTrackerRows() {
+  setTrackerBusy(true);
+  showTrackerError();
+  setTrackerProgress("正在启动批量更新", 0, 0, true);
+  try {
+    const response = await api("/api/jobscout/tracker/refresh-all", { method: "POST" });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.detail || response.statusText || "批量更新失败");
+    }
+    if (!response.body) throw new Error("浏览器不支持流式进度，请升级后重试");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const parsed = parseSseFrames(buffer);
+      buffer = parsed.remainder;
+      for (const event of parsed.events) applyTrackerProgressEvent(event);
+      if (done) break;
+    }
+    await loadTrackerApplications();
+  } catch (error) {
+    showTrackerError(error.message || String(error));
+    setTrackerProgress("批量更新中断", 0, 0, true);
+  } finally {
+    setTrackerBusy(false);
+  }
+}
+
+function setupTracker() {
+  $("trackerImportBtn")?.addEventListener("click", () => $("trackerCsvInput")?.click());
+  $("trackerCsvInput")?.addEventListener("change", importTrackerCsv);
+  $("trackerRefreshAllBtn")?.addEventListener("click", refreshAllTrackerRows);
 }
 
 function openSidebar() {
@@ -569,8 +842,10 @@ function setComposerBusy(busy) {
   if ($("baseUrlInput")) $("baseUrlInput").disabled = busy;
   if ($("prepModeBtn")) $("prepModeBtn").disabled = busy;
   if ($("matchModeBtn")) $("matchModeBtn").disabled = busy;
+  if ($("trackerModeBtn")) $("trackerModeBtn").disabled = busy;
   if ($("sidebarPrepBtn")) $("sidebarPrepBtn").disabled = busy;
   if ($("sidebarMatchBtn")) $("sidebarMatchBtn").disabled = busy;
+  if ($("sidebarTrackerBtn")) $("sidebarTrackerBtn").disabled = busy;
 }
 
 function setupComposer() {
@@ -1258,6 +1533,7 @@ if (typeof document !== "undefined") {
   setupAuthForm();
   setupComposer();
   setupModeSwitcher();
+  setupTracker();
   setupSidebarShell();
   wireNewChatButton();
   checkSession();
@@ -1273,5 +1549,8 @@ if (typeof module !== "undefined") {
     sanitizeJobScoutReportMarkdown,
     buildBaseMatchPrompt,
     withSkillPrefix,
+    isTerminalTrackerStatus,
+    trackerRowPresentation,
+    parseSseFrames,
   };
 }

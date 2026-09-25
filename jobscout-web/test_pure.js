@@ -12,7 +12,46 @@ const {
   sanitizeJobScoutReportMarkdown,
   buildBaseMatchPrompt,
   withSkillPrefix,
+  isTerminalTrackerStatus,
+  trackerRowPresentation,
+  parseSseFrames,
 } = require("./app.js");
+
+// ---- application tracker helpers ----
+assert.strictEqual(isTerminalTrackerStatus("Offer"), true);
+assert.strictEqual(isTerminalTrackerStatus("未通过"), true);
+assert.strictEqual(isTerminalTrackerStatus("流程终止"), true);
+assert.strictEqual(isTerminalTrackerStatus("二面"), false);
+
+const changedTrackerRow = trackerRowPresentation({
+  status: "二面",
+  previous_status: "一面",
+  changed: true,
+  confidence: 0.93,
+  terminal: false,
+});
+assert.strictEqual(changedTrackerRow.changeText, "一面 → 二面");
+assert.strictEqual(changedTrackerRow.needsReview, false);
+assert.strictEqual(changedTrackerRow.canRefresh, true);
+
+const uncertainTrackerRow = trackerRowPresentation({
+  status: "未知",
+  previous_status: null,
+  changed: false,
+  confidence: 0.42,
+  terminal: false,
+  checked_at: "2026-09-25T04:00:00Z",
+});
+assert.strictEqual(uncertainTrackerRow.needsReview, true);
+assert.strictEqual(uncertainTrackerRow.tone, "review");
+
+const firstSseChunk = parseSseFrames('data: {"type":"batch_started","total":2}\n\ndata: {"type":"row_');
+assert.deepStrictEqual(firstSseChunk.events, [{ type: "batch_started", total: 2 }]);
+assert.strictEqual(firstSseChunk.remainder, 'data: {"type":"row_');
+const secondSseChunk = parseSseFrames(`${firstSseChunk.remainder}completed","completed":1}\n\n`);
+assert.deepStrictEqual(secondSseChunk.events, [{ type: "row_completed", completed: 1 }]);
+assert.strictEqual(secondSseChunk.remainder, "");
+console.log("PASS: tracker status, review, change and chunked SSE helpers");
 
 // ---- extractLastVisibleAiText: real captured SSE `values` payload (Stage 4 curl test) ----
 const realMessages = [

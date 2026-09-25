@@ -106,6 +106,10 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 11l2 2 4-4"/></svg>
         <span><strong>岗位匹配</strong><small>简历 × 飞书岗位库</small></span>
       </button>
+      <button type="button" id="sidebarTrackerBtn" class="sidebar-nav-item">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5M17 12v5M14.5 14.5h5"/></svg>
+        <span><strong>进度追踪</strong><small>批量检查已投递岗位</small></span>
+      </button>
     </nav>
 
     <section class="sidebar-history" aria-label="历史对话">
@@ -149,6 +153,7 @@
         <div class="mode-switch" role="group" aria-label="任务模式">
           <button type="button" id="prepModeBtn" class="mode-btn active">面试准备</button>
           <button type="button" id="matchModeBtn" class="mode-btn">岗位匹配</button>
+          <button type="button" id="trackerModeBtn" class="mode-btn">进度追踪</button>
         </div>
       </div>
     </header>
@@ -169,6 +174,51 @@
         <p class="field-hint">仅只读获取岗位相关字段；每次匹配仍需上传本轮简历。</p>
       </div>
     </div>
+
+    <section id="trackerPanel" class="tracker-panel hidden" aria-label="秋招进度追踪">
+      <div class="tracker-toolbar">
+        <div>
+          <span class="eyebrow eyebrow-dark">APPLICATION TRACKER</span>
+          <h2>我的投递进度</h2>
+          <p>导入 CSV 主表后，可批量更新或单独刷新；终态岗位会自动跳过。</p>
+        </div>
+        <div class="tracker-actions">
+          <input id="trackerCsvInput" type="file" accept=".csv,text/csv" hidden />
+          <button id="trackerImportBtn" type="button" class="secondary-btn">导入 CSV</button>
+          <button id="trackerRefreshAllBtn" type="button" class="primary-btn">更新全部</button>
+        </div>
+      </div>
+
+      <div id="trackerProgress" class="tracker-progress hidden" aria-live="polite">
+        <div class="tracker-progress-copy">
+          <strong id="trackerProgressText">准备更新</strong>
+          <span id="trackerProgressCount">0 / 0</span>
+        </div>
+        <div class="tracker-progress-track" aria-hidden="true"><i id="trackerProgressBar"></i></div>
+      </div>
+      <p id="trackerError" class="tracker-error hidden" role="alert"></p>
+
+      <div id="trackerEmpty" class="tracker-empty hidden">
+        <strong>还没有投递记录</strong>
+        <span>请导入包含 company、role、url、applied_at、notes 的 UTF-8 CSV。</span>
+      </div>
+
+      <div id="trackerTableWrap" class="tracker-table-wrap hidden">
+        <table class="tracker-table">
+          <thead>
+            <tr>
+              <th>公司 / 岗位</th>
+              <th>申请时间</th>
+              <th>当前状态</th>
+              <th>置信度</th>
+              <th>最近检查</th>
+              <th><span class="sr-only">操作</span></th>
+            </tr>
+          </thead>
+          <tbody id="trackerTableBody"></tbody>
+        </table>
+      </div>
+    </section>
 
     <section class="conversation" id="chatCard" aria-label="JobScout 对话">
       <div id="dropOverlay" class="drop-overlay hidden">

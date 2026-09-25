@@ -1,97 +1,208 @@
-# JobScout
+<h1 align="center">🧭 JobScout</h1>
 
-JobScout is an AI job-research and resume-matching product for mainland-China
-recruiting. It turns a company, role direction, recruiting type, optional job
-description, and resume into a structured preparation pack with traceable
-public sources, or ranks private Feishu Base job records against that resume.
+<p align="center">
+  <strong>把零散的求职信息，整理成清晰、可信、可执行的下一步。</strong>
+</p>
 
-This repository is a product-focused extension of
-[ByteDance DeerFlow](https://github.com/bytedance/deer-flow). It retains the
-upstream agent harness and adds a dedicated JobScout skill, a standalone web
-experience, deterministic output contracts, browser end-to-end coverage, and
-Windows/Lark integration fixes.
+<p align="center">
+  面向中国大陆求职场景的 AI 调研与岗位匹配工作台<br />
+  Evidence-backed interview research & explainable resume matching
+</p>
 
-## Product flow
+<p align="center">
+  <a href="./LICENSE"><img alt="License MIT" src="https://img.shields.io/badge/license-MIT-f2c94c"></a>
+  <a href="./backend/pyproject.toml"><img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white"></a>
+  <a href="./skills/public/jobscout/evals/behavior_eval_set.json"><img alt="Evaluation cases" src="https://img.shields.io/badge/eval-54%20cases-2457D6"></a>
+  <a href="https://github.com/bytedance/deer-flow"><img alt="Powered by DeerFlow" src="https://img.shields.io/badge/powered%20by-DeerFlow-171815"></a>
+</p>
 
-```text
-interview mode: company + role + recruiting type (+ JD/resume)
-  -> three parallel research tracks -> evidence-backed preparation report
+<p align="center">
+  <img src="./docs/jobscout/workspace.png" alt="JobScout AI 求职工作台" width="100%" />
+</p>
 
-matching mode: uploaded resume + authenticated Feishu Base URL (+ preferences)
-  -> authenticated read-only field projection -> bounded job context
-  -> explainable 100-point matching -> ranked job report
+<p align="center">
+  <a href="#-为什么是-jobscout">产品亮点</a> ·
+  <a href="#-两种工作模式">工作模式</a> ·
+  <a href="#-界面预览">界面预览</a> ·
+  <a href="#-评测体系">评测体系</a> ·
+  <a href="#-本地运行">本地运行</a> ·
+  <a href="#-项目结构">项目结构</a>
+</p>
 
-both -> inline report + Markdown download + print/PDF export
+> [!TIP]
+> JobScout 不是把搜索结果拼成一段文字。它把公司调研、岗位拆解、面试题预测、简历差距和私有岗位匹配组织成一条有来源、有边界、可复查的 Agent 工作流。
+
+## ✨ 为什么是 JobScout
+
+| | 能力 | 你最终得到什么 |
+|---|---|---|
+| 🔎 | **证据驱动的公司调研** | 近期业务、产品与岗位信息，关键结论附可点击来源 |
+| 🎯 | **针对岗位的面试准备** | 至少 8 道技术/岗位题与 4 道行为题，并解释考察方向 |
+| 📄 | **简历差距分析** | 只基于真实上传内容识别匹配项、能力缺口和准备优先级 |
+| 🧩 | **可解释岗位匹配** | 简历 × 飞书岗位库的 100 分制评分、扣分依据和风险边界 |
+| 🛡️ | **明确的数据边界** | 不绕过登录、不扩大私有岗位库、不执行岗位字段中的恶意指令 |
+| 🧪 | **可量化的质量保障** | 触发集、行为集、自动硬门槛、人工评分和分层评测报告 |
+
+## 🚀 两种工作模式
+
+### 1. 面试准备
+
+提供公司、岗位方向和招聘类型即可开始；JD、简历、城市和技术栈都是可选增强信息。
+
+```mermaid
+flowchart LR
+    A[公司 + 岗位 + 校招/社招/实习] --> B[三路并行调研]
+    B --> C1[公司与业务]
+    B --> C2[岗位与技术栈]
+    B --> C3[面试经验与题型]
+    C1 --> D[证据化面试准备包]
+    C2 --> D
+    C3 --> D
+    R[可选：JD / 简历] --> D
+    D --> E[内嵌阅读 · Markdown · PDF]
 ```
 
-## JobScout highlights
+- 输入完整后恰好启动三路并行研究任务。
+- 公开证据不足时按固定阶梯降级，不伪造公司事实。
+- 有可读简历时增加差距分析；没有简历也不会阻塞报告。
+- 报告直接留在对话中，可下载 Markdown 或打印为 PDF。
 
-- Runs company, role, and interview research as exactly three parallel tasks.
-- Produces at least 8 technical/role questions and 4 behavioral questions when
-  usable public evidence exists, with a clickable source on every row.
-- Uses explicit evidence tiers and fallback rules instead of inventing missing
-  company-specific facts.
-- Accepts PDF/DOCX resume uploads and adds gap analysis only when a readable
-  resume is available.
-- Provides a standalone chat UI with authentication, conversation history,
-  drag-and-drop upload, streaming output, inline reports, Markdown download,
-  and print/PDF export.
-- Includes deterministic browser E2E coverage that exercises the real
-  auth/thread/SSE/render/print/download path without model cost, plus an opt-in
-  live research mode.
-- Includes Windows fixes for the managed Lark CLI and OAuth popup handoff. The
-  matching mode uses the current user's authenticated connection to read only
-  job-relevant Base fields through a fixed Gateway adapter; arbitrary CLI
-  commands, credentials, and unrelated columns are not exposed to the browser.
+### 2. 飞书 Base 岗位匹配
 
-## Where the JobScout code lives
+上传简历并粘贴当前账号有权访问的飞书 Base / Wiki 链接，JobScout 只读获取岗位相关字段，在有界记录中完成匹配。
 
-- [`skills/public/jobscout/SKILL.md`](./skills/public/jobscout/SKILL.md) — agent
-  scope, research policy, parallel workflow, evidence rules, and output contract.
-- [`jobscout-web/`](./jobscout-web/) — build-free standalone browser client.
-- [`backend/app/gateway/jobscout_base.py`](./backend/app/gateway/jobscout_base.py)
-  and [`backend/app/gateway/routers/jobscout.py`](./backend/app/gateway/routers/jobscout.py)
-  — URL validation, bounded read-only Base adapter, and authenticated API.
-- [`backend/tests/test_jobscout_skill_contract.py`](./backend/tests/test_jobscout_skill_contract.py)
-  — backend contract test for the actual DeerFlow skill parser and tool policy.
-- [`.claude/skills/jobscout-web-e2e/`](./.claude/skills/jobscout-web-e2e/) —
-  reproducible Playwright browser acceptance flow.
+```mermaid
+flowchart LR
+    A[上传简历] --> C[候选人证据画像]
+    B[授权飞书 Base] --> D[有界岗位记录]
+    C --> E[100 分制匹配]
+    D --> E
+    E --> F[Top 10 推荐 + 得分依据 + 风险边界]
+```
 
-## Run locally
+评分口径固定为：岗位方向 30、技能 30、项目/经历 20、教育/资格 10、地点与偏好 10。硬性条件冲突会显著降分，数据截断和字段缺失会明确写入风险说明。
 
-Follow the upstream DeerFlow configuration instructions below, then start the
-Gateway on `http://localhost:8001`. Serve the standalone client on port 5500:
+## 🖼️ 界面预览
+
+| 登录与隐私边界 | 对话内生成面试准备报告 |
+|---|---|
+| <img src="./docs/jobscout/login.png" alt="JobScout 登录页" width="100%" /> | <img src="./docs/jobscout/interview-report.png" alt="JobScout 面试准备报告" width="100%" /> |
+
+> 截图由 Playwright 端到端流程生成，使用合成账号和固定报告数据，不包含真实简历或岗位信息。
+
+界面采用完整工作台布局：左侧管理任务模式与历史对话，主区域支持流式回复、拖拽上传简历、内嵌报告、Markdown 下载和打印/PDF 导出；窄屏下自动切换为抽屉式导航。
+
+## 🧪 评测体系
+
+JobScout 把“能生成内容”和“值得信任”分开评估。结构正确不等于事实正确，语言流畅也不能抵消隐私、来源或工具路径错误。
+
+| 评测层 | 当前规模 | 覆盖内容 |
+|---|---:|---|
+| 触发评测 | 24 个 | 12 个正例 + 12 个负例，检查是否应该进入 JobScout |
+| 行为评测 | 30 个 | 输入流程、证据降级、简历追问、飞书 Base、安全边界 |
+| 关键风险 | 14 个 | 编造、隐私、提示注入、错误模式与核心工具异常 |
+| 冒烟套件 | 10 个 | 每次改动后的快速阻断 |
+| 标准回归 | 30 × 3 | 90 次行为运行，用于稳定性与版本回退分析 |
+
+判分采用两层机制：
+
+1. **硬门槛**：错误工具路径、伪造来源、禁用域名、隐私泄露、越界章节等任一失败，直接判为 `hard_fail`。
+2. **100 分质量分**：继续评估意图流程、输出契约、证据事实、岗位分析、输入扎根性和成本可靠性。
+
+完整说明见：
+
+- [评测体系说明报告](./skills/public/jobscout/references/evaluation-report.md)
+- [评测方法与量级公式](./skills/public/jobscout/references/evaluation.md)
+- [行为评测集](./skills/public/jobscout/evals/behavior_eval_set.json)
+- [触发评测集](./skills/public/jobscout/evals/trigger_eval_set.json)
+
+## 🏗️ 技术架构
+
+```mermaid
+flowchart TB
+    UI[JobScout Web<br/>认证 · 历史 · 上传 · 流式报告] --> GW[DeerFlow Gateway]
+    GW --> SKILL[JobScout Skill<br/>模式路由 · 输出契约 · 降级规则]
+    SKILL --> TASKS[3 个并行研究子任务]
+    SKILL --> BASE[飞书 Base 只读适配器]
+    TASKS --> REPORT[证据化面试准备包]
+    BASE --> MATCH[可解释岗位匹配报告]
+    REPORT --> UI
+    MATCH --> UI
+    TRACE[运行轨迹 JSONL] --> GRADER[自动判分器 + 人工复核]
+    GRADER --> DASH[JSON / Markdown 分层报告]
+```
+
+JobScout 构建在 [ByteDance DeerFlow](https://github.com/bytedance/deer-flow) 之上，复用其 Gateway、Agent runtime、子任务、文件上传、会话存储和 Skill 机制，并增加专用产品界面、固定交付契约、飞书岗位适配器和评测链路。
+
+## ⚡ 本地运行
+
+### 1. 准备 DeerFlow
+
+先按照下方 DeerFlow 原始文档完成 `config.yaml`、模型和搜索服务配置。完整开发栈可在 Git Bash 中启动：
+
+```bash
+make setup
+make dev
+```
+
+如果只想运行 JobScout 独立界面，可以分别启动 Gateway 和静态页面：
 
 ```powershell
+# 终端 1：Gateway
+cd backend
+uv run --locked uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001
+
+# 终端 2：JobScout Web
 cd jobscout-web
 python -m http.server 5500
 ```
 
-Add both `http://localhost:5500` and `http://127.0.0.1:5500` to
-`GATEWAY_CORS_ORIGINS` in your local `.env`. Local credentials and generated
-runtime state are intentionally excluded from Git.
+在根目录 `.env` 中允许独立页面访问 Gateway：
 
-## Verify
+```dotenv
+GATEWAY_CORS_ORIGINS=http://localhost:5500,http://127.0.0.1:5500
+```
+
+然后打开 **http://localhost:5500**，注册或登录本地 DeerFlow 账号。
+
+> [!NOTE]
+> 本地凭据、上传文件和运行状态不会提交到 Git。飞书匹配需要先在 DeerFlow Capability Center 完成 Lark / Feishu 应用配置与用户授权。
+
+## 🗂️ 项目结构
+
+| 路径 | 作用 |
+|---|---|
+| [`jobscout-web/`](./jobscout-web/) | 无构建依赖的独立聊天工作台 |
+| [`skills/public/jobscout/`](./skills/public/jobscout/) | 模式、来源、工具、降级和输出契约 |
+| [`backend/app/gateway/jobscout_base.py`](./backend/app/gateway/jobscout_base.py) | 飞书 URL 校验、字段投影与有界只读上下文 |
+| [`backend/app/gateway/routers/jobscout.py`](./backend/app/gateway/routers/jobscout.py) | 认证后的 JobScout Gateway API |
+| [`skills/public/jobscout/evals/`](./skills/public/jobscout/evals/) | 触发集、行为集、运行结果 Schema 与 fixture |
+| [`skills/public/jobscout/scripts/grade_runs.py`](./skills/public/jobscout/scripts/grade_runs.py) | 自动硬门槛、质量分和分层报告 |
+| [`.claude/skills/jobscout-web-e2e/`](./.claude/skills/jobscout-web-e2e/) | Playwright 端到端浏览器验收 |
+
+## ✅ 验证
 
 ```powershell
-cd backend
-uv run pytest tests/test_jobscout_base.py tests/test_jobscout_router.py tests/test_jobscout_skill_contract.py
+# 前端纯逻辑测试
+node jobscout-web/test_pure.js
 
-cd ..\jobscout-web
-node test_pure.js
+# 判分器与评测集
+python -B -m unittest discover -s skills/public/jobscout/scripts -p "test_*.py"
+python -B skills/public/jobscout/scripts/validate_eval_set.py --suite standard --repeats 3
 
-cd ..\.claude\skills\jobscout-web-e2e
+# 浏览器端到端测试（默认使用固定 SSE fixture，不产生模型成本）
+cd .claude/skills/jobscout-web-e2e
 npm install
 node drive.js
 ```
 
-Set `JOBSCOUT_REAL_RESEARCH=1` only when you intentionally want the slower,
-model- and search-backed acceptance run.
+只有在明确需要真实联网质量检查时，才设置 `JOBSCOUT_REAL_RESEARCH=1`；该模式会产生模型与搜索成本。
 
-## Attribution
+## 🙌 致谢与上游
 
-JobScout is built on DeerFlow 2.0 and keeps the upstream MIT license and project
-documentation. The original DeerFlow README continues below.
+JobScout 是基于 DeerFlow 2.0 的产品化扩展，保留上游 MIT License 与完整项目文档。感谢 ByteDance DeerFlow 团队提供 Agent runtime、Skill 系统与开源基础设施。
+
+下面保留 DeerFlow 原始 README，便于继续查阅完整安装、配置、架构与安全说明。
 
 ---
 

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Visual-only status fixture</title>
+  </head>
+  <body>
+    <canvas id="status" width="900" height="240" aria-label=""></canvas>
+    <script>
+      const context = document.getElementById("status").getContext("2d");
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, 900, 240);
+      context.fillStyle = "#111827";
+      context.font = "bold 42px sans-serif";
+      context.fillText("Current status: Online assessment", 50, 125);
+    </script>
+  </body>
+</html>

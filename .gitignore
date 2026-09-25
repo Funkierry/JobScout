@@ -30,6 +30,10 @@ backend/scripts/benchmark/*.jsonl
 
 # Environment variables
 .env
+browser_profile/
+*.db
+*.db-shm
+*.db-wal
 
 # Configuration files
 config.yaml
