@@ -58,6 +58,31 @@ async def test_login_detector_recognizes_password_input_without_url_marker() -> 
 
 
 @pytest.mark.asyncio
+async def test_login_detector_recognizes_login_cta_on_application_page() -> None:
+    inspection = await LoginDetector().inspect(
+        FakePage(
+            "https://jobs.example.com/campus/position/application?campaign=2026",
+            text="我的申请\n登录",
+        )
+    )
+
+    assert inspection.state is LoginState.LOGIN_REQUIRED
+    assert inspection.reason == "login_cta"
+
+
+@pytest.mark.asyncio
+async def test_login_detector_does_not_treat_login_history_as_a_login_cta() -> None:
+    inspection = await LoginDetector().inspect(
+        FakePage(
+            "https://jobs.example.com/applications/42",
+            text="最近登录时间：今天 09:00\nCurrent application status: Assessment",
+        )
+    )
+
+    assert inspection.state is LoginState.AUTHENTICATED
+
+
+@pytest.mark.asyncio
 async def test_login_detector_hands_captcha_to_a_human() -> None:
     inspection = await LoginDetector().inspect(
         FakePage(

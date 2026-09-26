@@ -180,14 +180,23 @@
         <div>
           <span class="eyebrow eyebrow-dark">APPLICATION TRACKER</span>
           <h2>我的投递进度</h2>
-          <p>导入 CSV 主表后，可批量更新或单独刷新；终态岗位会自动跳过。</p>
+          <p>添加登录后的申请列表或岗位详情链接；识别到多个申请时，会按岗位名称分别写入进度表。</p>
         </div>
         <div class="tracker-actions">
-          <input id="trackerCsvInput" type="file" accept=".csv,text/csv" hidden />
-          <button id="trackerImportBtn" type="button" class="secondary-btn">导入 CSV</button>
+          <button id="trackerStagesBtn" type="button" class="secondary-btn">管理环节</button>
+          <button id="trackerExportBtn" type="button" class="secondary-btn">导出 CSV</button>
           <button id="trackerRefreshAllBtn" type="button" class="primary-btn">更新全部</button>
         </div>
       </div>
+
+      <form id="trackerAddForm" class="tracker-add-form">
+        <label>公司<input name="company" required maxlength="200" placeholder="例如：某某科技" /></label>
+        <label class="tracker-url-field">申请列表 / 详情链接<input name="url" type="url" required maxlength="2048" placeholder="粘贴登录后可查看申请进度的页面链接" /></label>
+        <label>投递日期<input name="applied_at" type="date" /></label>
+        <button class="primary-btn" type="submit">添加并识别</button>
+        <span>请使用你有权限访问的个人申请页面；如需登录，会打开浏览器窗口供你手动完成。</span>
+      </form>
+      <div id="trackerStageEditor" class="tracker-stage-editor hidden"></div>
 
       <div id="trackerProgress" class="tracker-progress hidden" aria-live="polite">
         <div class="tracker-progress-copy">
@@ -196,21 +205,38 @@
         </div>
         <div class="tracker-progress-track" aria-hidden="true"><i id="trackerProgressBar"></i></div>
       </div>
+      <dialog id="trackerResultDialog" class="tracker-result-dialog" aria-labelledby="trackerResultTitle">
+        <div class="tracker-result-head">
+          <span class="eyebrow eyebrow-dark">REFRESH RESULT</span>
+          <button id="trackerResultClose" type="button" class="secondary-btn">关闭</button>
+        </div>
+        <h3 id="trackerResultTitle">刷新结果</h3>
+        <p id="trackerResultMessage"></p>
+        <dl>
+          <div><dt>公司</dt><dd id="trackerResultCompany"></dd></div>
+          <div><dt>识别岗位</dt><dd id="trackerResultRole"></dd></div>
+          <div><dt>投递进度</dt><dd id="trackerResultStage"></dd></div>
+          <div><dt>页面状态原文</dt><dd id="trackerResultRaw"></dd></div>
+          <div><dt>页面依据</dt><dd id="trackerResultEvidence"></dd></div>
+          <div><dt>检查时间</dt><dd id="trackerResultChecked"></dd></div>
+        </dl>
+      </dialog>
       <p id="trackerError" class="tracker-error hidden" role="alert"></p>
 
       <div id="trackerEmpty" class="tracker-empty hidden">
         <strong>还没有投递记录</strong>
-        <span>请导入包含 company、role、url、applied_at、notes 的 UTF-8 CSV。</span>
+        <span>添加公司和个人投递查询链接后，就会出现在这里。</span>
       </div>
 
       <div id="trackerTableWrap" class="tracker-table-wrap hidden">
         <table class="tracker-table">
           <thead>
             <tr>
-              <th>公司 / 岗位</th>
+              <th>公司</th>
+              <th>识别岗位</th>
               <th>申请时间</th>
-              <th>当前状态</th>
-              <th>置信度</th>
+              <th>自定义环节</th>
+              <th>页面识别</th>
               <th>最近检查</th>
               <th><span class="sr-only">操作</span></th>
             </tr>

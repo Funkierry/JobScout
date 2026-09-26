@@ -312,7 +312,7 @@ async def test_screenshot_is_forwarded_to_vision_model_and_marked_low_confidence
 
 
 @pytest.mark.asyncio
-async def test_agent_requests_human_login_then_updates_from_reopened_page(
+async def test_detected_login_is_requested_automatically_then_extracted(
     tmp_path: Any,
 ) -> None:
     browser = FakeBrowser(
@@ -323,41 +323,13 @@ async def test_agent_requests_human_login_then_updates_from_reopened_page(
     )
     extractor = StubExtractor(
         _record(
-            ApplicationStatus.UNKNOWN,
-            confidence=0,
-            raw_status="",
-            evidence="",
+            ApplicationStatus.WRITTEN_TEST,
+            confidence=0.91,
+            raw_status="Written test",
+            evidence="Current status: Written test",
         )
     )
-    planner = StubPlanner(
-        [
-            AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "name": "request_human_login",
-                        "args": {},
-                        "id": "login-1",
-                    }
-                ],
-            ),
-            AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "name": "update_record",
-                        "args": {
-                            "status": "笔试",
-                            "raw_status": "Written test",
-                            "confidence": 0.91,
-                            "evidence": "Current status: Written test",
-                        },
-                        "id": "update-3",
-                    }
-                ],
-            ),
-        ]
-    )
+    planner = StubPlanner()
     agent = ApplicationTrackerAgent(
         model=planner,
         extractor=extractor,
@@ -372,7 +344,43 @@ async def test_agent_requests_human_login_then_updates_from_reopened_page(
 
     assert result.status is ApplicationStatus.WRITTEN_TEST
     assert browser.login_calls == 1
+    assert extractor.calls == 1
+    assert planner.calls == []
+
+
+@pytest.mark.asyncio
+async def test_login_timeout_finishes_without_calling_the_model(tmp_path: Any) -> None:
+    browser = FakeBrowser(
+        page_text="",
+        check_result=CheckResult.LOGIN_REQUIRED,
+        login_state=LoginState.LOGIN_REQUIRED,
+    )
+    extractor = StubExtractor(
+        _record(
+            ApplicationStatus.UNKNOWN,
+            confidence=0,
+            raw_status="",
+            evidence="",
+        )
+    )
+    planner = StubPlanner()
+    agent = ApplicationTrackerAgent(
+        model=planner,
+        extractor=extractor,
+        browser_factory=FakeBrowserFactory(browser),
+    )
+
+    result = await agent.run(
+        _application(),
+        user_id="local-user",
+        browser_config=_browser_config(tmp_path),
+    )
+
+    assert result.check_result is CheckResult.LOGIN_REQUIRED
+    assert result.status is ApplicationStatus.UNKNOWN
+    assert browser.login_calls == 1
     assert extractor.calls == 0
+    assert planner.calls == []
 
 
 @pytest.mark.asyncio

@@ -200,17 +200,28 @@ class PersistentAgentBrowser:
             )
             deadline = self._monotonic() + self._config.login_timeout_seconds
             challenge_announced = False
+            initial_settle = min(
+                self._config.login_poll_interval_seconds,
+                self._config.login_timeout_seconds,
+            )
+            if initial_settle > 0:
+                await self._sleep(initial_settle)
             while True:
                 self._page = await self._active_page()
                 inspection = await self._detector.inspect(self._page)
                 if inspection.state is LoginState.AUTHENTICATED:
-                    await self._emit(
-                        BrowserEvent(
-                            BrowserEventType.LOGIN_COMPLETED,
-                            "登录完成，正在切回无头浏览器。",
+                    await self._navigate_target()
+                    result = await self._current_result(login_attempted=True)
+                    if result.check_result is CheckResult.SUCCESS:
+                        await self._emit(
+                            BrowserEvent(
+                                BrowserEventType.LOGIN_COMPLETED,
+                                "登录完成，正在读取申请页面。",
+                            )
                         )
-                    )
-                    break
+                        return result
+                    if result.check_result is CheckResult.FETCH_FAILED:
+                        return result
                 if inspection.state is LoginState.HUMAN_CHALLENGE and not challenge_announced:
                     challenge_announced = True
                     await self._emit(
@@ -237,10 +248,6 @@ class PersistentAgentBrowser:
                     )
                 await self._sleep(min(self._config.login_poll_interval_seconds, remaining))
 
-            await self._close_context()
-            await self._open_context(headless=self._config.headless)
-            await self._navigate_target()
-            return await self._current_result(login_attempted=True)
         except BrowserDependencyError:
             return self._failed("browser_unavailable", login_attempted=True)
         except Exception:
@@ -281,6 +288,16 @@ class PersistentAgentBrowser:
             wait_until="domcontentloaded",
             timeout=self._config.navigation_timeout_ms,
         )
+        try:
+            await page.wait_for_load_state(
+                "networkidle",
+                timeout=min(self._config.navigation_timeout_ms, 3_000),
+            )
+        except Exception:
+            pass
+        # Recruitment portals often render an authenticated-looking shell and
+        # apply a client-side login redirect only after network-idle fires.
+        await page.wait_for_timeout(min(self._config.page_text_timeout_ms, 2_000))
 
     async def _current_result(self, *, login_attempted: bool) -> BrowserAccessResult:
         page = self._require_page()

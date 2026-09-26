@@ -30,6 +30,27 @@ class CheckResult(StrEnum):
     FETCH_FAILED = "抓取失败"
 
 
+class DiscoveredApplication(BaseModel):
+    """One separately grounded application found on a logged-in listing page."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    role: str = Field(min_length=1, max_length=300)
+    role_evidence: str = Field(min_length=1, max_length=500)
+    status: ApplicationStatus
+    raw_status: str = Field(default="", max_length=500)
+    confidence: float = Field(ge=0, le=1)
+    evidence: str = Field(default="", max_length=1500)
+
+    @model_validator(mode="after")
+    def require_grounded_status_fields(self) -> DiscoveredApplication:
+        if self.role not in self.role_evidence:
+            raise ValueError("role_evidence must identify this exact role")
+        if self.status is not ApplicationStatus.UNKNOWN and (not self.raw_status or not self.evidence):
+            raise ValueError("known statuses require raw_status and evidence")
+        return self
+
+
 class ApplicationInput(BaseModel):
     """One row from the user's application source table."""
 
@@ -68,6 +89,9 @@ class StatusExtraction(BaseModel):
     raw_status: str = Field(default="", max_length=500, description="页面中的原始状态短语，必须逐字引用")
     confidence: float = Field(ge=0, le=1, description="当前状态判断的置信度，范围 0 到 1")
     evidence: str = Field(default="", max_length=1500, description="支持判断的页面原文片段，必须逐字引用")
+    detected_role: str = Field(default="", max_length=300, description="当岗位待识别时，从页面读取的岗位名称")
+    role_evidence: str = Field(default="", max_length=500, description="岗位名称对应的页面原文，必须逐字引用")
+    discovered_applications: list[DiscoveredApplication] = Field(default_factory=list, max_length=100, description="登录后的岗位列表页中逐条识别到的岗位与进度")
 
     @model_validator(mode="after")
     def require_grounding_fields_for_known_status(self) -> StatusExtraction:
@@ -76,6 +100,8 @@ class StatusExtraction(BaseModel):
                 raise ValueError("raw_status is required when status is not 未知")
             if not self.evidence:
                 raise ValueError("evidence is required when status is not 未知")
+        if bool(self.detected_role) != bool(self.role_evidence):
+            raise ValueError("detected_role and role_evidence must be provided together")
         return self
 
 
@@ -91,6 +117,8 @@ class StatusRecord(BaseModel):
     raw_status: str = Field(default="", max_length=500)
     confidence: float = Field(ge=0, le=1)
     evidence: str = Field(default="", max_length=1500)
+    detected_role: str = Field(default="", max_length=300)
+    discovered_applications: list[DiscoveredApplication] = Field(default_factory=list, max_length=100)
     checked_at: datetime
     changed_at: datetime
     check_result: CheckResult

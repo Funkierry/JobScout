@@ -1,5 +1,20 @@
 # Application Tracker — Phases 1–3
 
+## Online tracker workflow
+
+The JobScout web tracker accepts a company and a personal application
+list/detail URL. After adding it, the browser workflow inspects the page and
+grounds detected role names and current statuses in visible page text. When a
+logged-in listing page clearly associates multiple applied roles with their
+own statuses, it creates one progress-table row per role; repeated refreshes
+update those rows instead of creating duplicates. Each generated row reopens
+the same private source page and targets its saved role name. The table supports inline company, role,
+and application-date edits; user-managed stage names/order; per-row and batch
+refresh; deletion; and UTF-8 CSV export. A manually selected stage is preserved
+on later refreshes, while automatic stages follow recognized status changes.
+Keep the URL private: it may identify a personal application, and do not paste
+passwords or session tokens into the URL.
+
 This module is the offline extraction core for JobScout's application-progress
 tracker. Phase 1 does not open websites, reuse cookies, write a database, or
 mount an HTTP route. It accepts page text captured elsewhere, asks a configured
@@ -35,11 +50,13 @@ uv run --locked --extra browser python scripts/application_tracker_browser_check
 ```
 
 The first visit is headless. If deterministic rules find a login URL, password
-input, CAPTCHA, or risk-control page, that context is closed and the same local
-profile is reopened in a visible Chromium window. Complete login manually; the
-script polls every 1.5 seconds for at most five minutes, closes the visible
-window, and retries the target in headless mode. It never attempts to bypass a
-CAPTCHA. Profiles are separated by hashed user and hostname keys.
+input, an isolated login action on a private application/progress route,
+CAPTCHA, or risk-control page, that context is closed and the same local profile
+is reopened in a visible Chromium window. Complete login manually; the script
+polls every 1.5 seconds for at most five minutes and never attempts to bypass a
+CAPTCHA. Profiles are separated by hashed user and hostname keys. A timed-out
+login is returned directly as `login_required` without spending model calls on
+a page that is still inaccessible.
 
 The command prints only progress and a result summary. Use
 `--snapshot-output .deer-flow/application-tracker/snapshot.txt` only when you
@@ -84,10 +101,13 @@ The six scoped tools are `open_page`, `get_page_text`, `screenshot`, `click`,
 from the latest observation and blocks destructive labels such as withdrawing
 an application or accepting/declining an offer. If deterministic login rules
 miss a nonstandard page, the agent may request the visible login window once
-as a fallback. Screenshot bytes are kept in
-memory and sent to the configured vision-capable model only when the agent
-explicitly asks for visual fallback. Visually inferred records are capped at
-confidence `0.69`, forcing later manual confirmation.
+as a fallback. After login, the agent keeps that same visible browser context
+while it reopens and reads the application page; it does not switch browser
+mode mid-session, because some portals bind authentication to the active
+browser environment. The window closes when the check finishes. Screenshot
+bytes are kept in memory and sent to the configured vision-capable model only
+when the agent explicitly asks for visual fallback. Visually inferred records
+are capped at confidence `0.69`, forcing later manual confirmation.
 
 Run one record from `backend/`:
 

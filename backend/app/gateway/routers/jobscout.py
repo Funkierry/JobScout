@@ -7,14 +7,16 @@ job-relevant fields for the matching workflow.
 """
 
 import asyncio
+import csv
+import io
 import json
 import logging
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field, field_validator
 
 from app.application_tracker.agent.workflow import ApplicationTrackerAgent
 from app.application_tracker.csv_import import (
@@ -22,6 +24,7 @@ from app.application_tracker.csv_import import (
     CsvImportError,
     parse_application_csv,
 )
+from app.application_tracker.models import ApplicationInput
 from app.application_tracker.store import (
     ApplicationTrackerStore,
     ImportSummary,
@@ -82,6 +85,36 @@ class JobBaseContextResponse(BaseModel):
     record_count: int
     has_more: bool
     context_truncated: bool
+
+
+class TrackerApplicationCreate(BaseModel):
+    company: str = Field(min_length=1, max_length=200)
+    url: str = Field(min_length=1, max_length=2048)
+    role: str = Field(default="待识别岗位", max_length=300)
+    applied_at: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        return ApplicationInput.validate_http_url(value)
+
+
+class TrackerApplicationPatch(BaseModel):
+    company: str | None = Field(default=None, min_length=1, max_length=200)
+    role: str | None = Field(default=None, min_length=1, max_length=300)
+    url: str | None = Field(default=None, min_length=1, max_length=2048)
+    applied_at: str | None = None
+    notes: str | None = Field(default=None, max_length=5000)
+    stage: str | None = Field(default=None, min_length=1, max_length=60)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str | None) -> str | None:
+        return ApplicationInput.validate_http_url(value) if value else value
+
+
+class TrackerStagesUpdate(BaseModel):
+    stages: list[str] = Field(min_length=1, max_length=40)
 
 
 @router.post(
@@ -153,6 +186,84 @@ async def list_tracker_applications(request: Request) -> list[StoredApplication]
     del request
     user_id = get_effective_user_id()
     return await asyncio.to_thread(_tracker_store().list_applications, user_id)
+
+
+@router.post("/tracker/applications", response_model=StoredApplication)
+@require_permission("runs", "create")
+async def create_tracker_application(body: TrackerApplicationCreate, request: Request) -> StoredApplication:
+    del request
+    try:
+        application = ApplicationInput(company=body.company, role=body.role or "待识别岗位", url=body.url, applied_at=body.applied_at)
+        return await asyncio.to_thread(_tracker_store().add_application, get_effective_user_id(), application)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.patch("/tracker/applications/{application_id}", response_model=StoredApplication)
+@require_permission("runs", "create")
+async def patch_tracker_application(application_id: int, body: TrackerApplicationPatch, request: Request) -> StoredApplication:
+    del request
+    try:
+        row = await asyncio.to_thread(_tracker_store().update_application, get_effective_user_id(), application_id, body.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="Application was not found")
+    return row
+
+
+@router.delete("/tracker/applications/{application_id}", status_code=204)
+@require_permission("runs", "create")
+async def delete_tracker_application(application_id: int, request: Request) -> Response:
+    del request
+    deleted = await asyncio.to_thread(_tracker_store().delete_application, get_effective_user_id(), application_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Application was not found")
+    return Response(status_code=204)
+
+
+@router.get("/tracker/stages", response_model=list[str])
+@require_permission("runs", "read")
+async def get_tracker_stages(request: Request) -> list[str]:
+    del request
+    return await asyncio.to_thread(_tracker_store().list_stages, get_effective_user_id())
+
+
+@router.put("/tracker/stages", response_model=list[str])
+@require_permission("runs", "create")
+async def put_tracker_stages(body: TrackerStagesUpdate, request: Request) -> list[str]:
+    del request
+    try:
+        return await asyncio.to_thread(_tracker_store().replace_stages, get_effective_user_id(), body.stages)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/tracker/export.csv")
+@require_permission("runs", "read")
+async def export_tracker_csv(request: Request) -> Response:
+    del request
+    rows = await asyncio.to_thread(_tracker_store().list_applications, get_effective_user_id())
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["公司", "岗位", "投递日期", "自定义环节", "识别状态", "页面原始状态", "查询链接", "识别结果", "最近检查时间", "置信度", "证据"])
+    for row in rows:
+        writer.writerow(
+            [
+                row.company,
+                row.role,
+                row.applied_at or "",
+                row.stage,
+                row.status.value,
+                row.raw_status,
+                row.url,
+                row.check_result.value if row.check_result else "",
+                row.checked_at.isoformat() if row.checked_at else "",
+                row.confidence,
+                row.evidence,
+            ]
+        )
+    return Response(content="\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": "attachment; filename=jobscout-applications.csv"})
 
 
 @router.post(

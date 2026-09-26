@@ -140,6 +140,8 @@ class ApplicationTrackerToolbox:
         raw_status: str,
         confidence: float,
         evidence: str,
+        detected_role: str = "",
+        role_evidence: str = "",
     ) -> str:
         try:
             extraction = StatusExtraction(
@@ -147,11 +149,16 @@ class ApplicationTrackerToolbox:
                 raw_status=raw_status,
                 confidence=confidence,
                 evidence=evidence,
+                detected_role=detected_role,
+                role_evidence=role_evidence,
             )
         except ValidationError as exc:
             return self._error(f"invalid status fields: {exc.errors()[0]['msg']}")
 
         grounded = self._is_grounded(extraction.raw_status) and self._is_grounded(extraction.evidence)
+        role_grounded = self._is_grounded(extraction.role_evidence) and self._is_grounded(extraction.detected_role)
+        if not role_grounded:
+            return self._error("role_evidence must be copied from the current page text")
         if not grounded:
             if not self.screenshot_seen:
                 return self._error("raw_status and evidence must be copied from the current page text")
@@ -170,6 +177,7 @@ class ApplicationTrackerToolbox:
             raw_status=extraction.raw_status,
             confidence=confidence,
             evidence=extraction.evidence,
+            detected_role=extraction.detected_role if role_grounded else "",
             checked_at=self.checked_at,
             changed_at=changed_at,
             check_result=CheckResult.SUCCESS,
@@ -250,6 +258,8 @@ class ApplicationTrackerToolbox:
             raw_status: str,
             confidence: float,
             evidence: str,
+            detected_role: str = "",
+            role_evidence: str = "",
         ) -> str:
             """Validate and accept the normalized status for this application."""
             return await toolbox.update_record(
@@ -257,6 +267,8 @@ class ApplicationTrackerToolbox:
                 raw_status=raw_status,
                 confidence=confidence,
                 evidence=evidence,
+                detected_role=detected_role,
+                role_evidence=role_evidence,
             )
 
         return [

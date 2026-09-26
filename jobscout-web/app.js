@@ -188,6 +188,7 @@ let pendingFile = null;
 let currentMode = "prep";
 let trackerRows = [];
 let trackerBusy = false;
+let trackerStages = [];
 
 function buildBaseMatchPrompt({ userText = "", baseContext }) {
   const compactContext = {
@@ -430,9 +431,39 @@ function showTrackerError(message = "") {
   target.classList.toggle("hidden", !message);
 }
 
+function showTrackerResult(row, message = "刷新完成") {
+  const dialog = $("trackerResultDialog");
+  if (!dialog || !row) return;
+  const setText = (id, value) => { const node = $(id); if (node) node.textContent = value || "—"; };
+  const successful = row.check_result === "成功";
+  const unknown = row.status === "未知";
+  $("trackerResultTitle").textContent = successful ? "刷新完成" : "刷新未完成";
+  $("trackerResultMessage").textContent = successful
+    ? (unknown ? "页面已读取，但没有找到可确认的岗位或进度；请检查是否需要登录，或链接是否指向申请详情页。" : message)
+    : `${message}。请检查页面是否要求登录，再重试。`;
+  setText("trackerResultCompany", row.company);
+  setText("trackerResultRole", row.role);
+  setText("trackerResultStage", row.stage || row.status);
+  setText("trackerResultRaw", row.raw_status);
+  setText("trackerResultEvidence", row.evidence);
+  setText("trackerResultChecked", formatTrackerDate(row.checked_at));
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else window.alert(`${row.company}｜岗位：${row.role}｜进度：${row.stage || row.status}\n${$("trackerResultMessage").textContent}`);
+}
+
+function showTrackerBatchResult(rows) {
+  const dialog = $("trackerResultDialog");
+  if (!dialog) return;
+  const latest = [...rows].reverse().find((row) => row.checked_at) || rows[0];
+  if (!latest) return;
+  showTrackerResult(latest, `批量刷新已处理 ${rows.length} 条记录；每条结果已更新到表格。`);
+  $("trackerResultTitle").textContent = "批量刷新完成";
+  $("trackerResultMessage").textContent = `共处理 ${rows.length} 条记录，岗位与进度已写入表格。下面展示最近检查的一条；其他记录请查看表格。`;
+}
+
 function setTrackerBusy(busy) {
   trackerBusy = busy;
-  for (const id of ["trackerImportBtn", "trackerRefreshAllBtn", "trackerCsvInput"]) {
+  for (const id of ["trackerStagesBtn", "trackerExportBtn", "trackerRefreshAllBtn"]) {
     if ($(id)) $(id).disabled = busy;
   }
   renderTrackerRows();
@@ -461,32 +492,37 @@ function renderTrackerRows() {
     if (presentation.needsReview) tableRow.classList.add("tracker-row-review");
 
     const identityCell = trackerElement("td", "tracker-identity");
-    const link = trackerElement("a", "tracker-company", row.company);
-    link.href = row.url;
-    link.target = "_blank";
-    link.rel = "noopener";
-    identityCell.append(link, trackerElement("span", "tracker-role", row.role));
-    if (row.notes) identityCell.append(trackerElement("small", "tracker-notes", row.notes));
+    identityCell.append(makeTrackerEditor(row, "company", "公司"));
+    const queryLink = trackerElement("a", "tracker-company", "打开查询页"); queryLink.href = row.url; queryLink.target = "_blank"; queryLink.rel = "noopener noreferrer"; identityCell.append(queryLink);
+    const roleCell = trackerElement("td", "tracker-identity");
+    roleCell.append(makeTrackerEditor(row, "role", "岗位"));
 
-    const appliedCell = trackerElement("td", "tracker-date", formatTrackerDate(row.applied_at, true));
+    const appliedCell = trackerElement("td", "tracker-date");
+    appliedCell.append(makeTrackerEditor(row, "applied_at", "日期", "date"));
+    const stageCell = trackerElement("td", "tracker-stage-cell");
+    const stageSelect = trackerElement("select", "tracker-stage-select");
+    const availableStages = [...new Set([...trackerStages, row.stage || row.status])];
+    for (const stage of availableStages) {
+      const option = trackerElement("option", "", stage);
+      option.value = stage;
+      option.selected = stage === (row.stage || row.status);
+      stageSelect.append(option);
+    }
+    stageSelect.addEventListener("change", () => patchTrackerRow(row.id, { stage: stageSelect.value }));
+    stageCell.append(stageSelect);
     const statusCell = trackerElement("td", "tracker-status-cell");
-    statusCell.append(trackerElement("span", "tracker-status-pill", row.status));
+    statusCell.append(trackerElement("span", "tracker-status-pill", row.raw_status || row.status));
+    if (row.checked_at) statusCell.append(trackerElement("small", presentation.needsReview ? "tracker-review-label" : "tracker-raw", `${Math.round(Number(row.confidence) * 100)}%${presentation.needsReview ? " · 需确认" : " 置信度"}`));
+    if (row.evidence) {
+      const evidence = trackerElement("small", "tracker-raw", row.evidence);
+      statusCell.append(evidence);
+    }
     if (presentation.changeText) {
       statusCell.append(trackerElement("small", "tracker-change", presentation.changeText));
     } else if (row.raw_status) {
       const raw = trackerElement("small", "tracker-raw", row.raw_status);
       if (row.evidence) raw.title = row.evidence;
       statusCell.append(raw);
-    }
-
-    const confidenceCell = trackerElement("td", "tracker-confidence");
-    confidenceCell.append(trackerElement(
-      "strong",
-      "",
-      row.checked_at ? `${Math.round(Number(row.confidence) * 100)}%` : "—",
-    ));
-    if (presentation.needsReview) {
-      confidenceCell.append(trackerElement("small", "tracker-review-label", "需人工确认"));
     }
 
     const checkedCell = trackerElement("td", "tracker-checked");
@@ -505,10 +541,35 @@ function renderTrackerRows() {
     refreshButton.disabled = trackerBusy || !presentation.canRefresh;
     refreshButton.addEventListener("click", () => refreshTrackerRow(row.id));
     actionCell.append(refreshButton);
+    const removeButton = trackerElement("button", "tracker-refresh-btn", "删除");
+    removeButton.type = "button";
+    removeButton.addEventListener("click", async () => {
+      if (!confirm(`确定删除 ${row.company} - ${row.role}？`)) return;
+      try { await apiJson(`/api/jobscout/tracker/applications/${row.id}`, { method: "DELETE" }); trackerRows = trackerRows.filter((item) => item.id !== row.id); renderTrackerRows(); }
+      catch (error) { showTrackerError(error.message || String(error)); }
+    });
+    actionCell.append(removeButton);
 
-    tableRow.append(identityCell, appliedCell, statusCell, confidenceCell, checkedCell, actionCell);
+    tableRow.append(identityCell, roleCell, appliedCell, stageCell, statusCell, checkedCell, actionCell);
     body.append(tableRow);
   }
+}
+
+function makeTrackerEditor(row, field, label, type = "text") {
+  const input = trackerElement("input", "tracker-inline-input");
+  input.type = type;
+  input.setAttribute("aria-label", label);
+  input.value = row[field] || "";
+  input.addEventListener("change", () => patchTrackerRow(row.id, { [field]: input.value || null }));
+  return input;
+}
+
+async function patchTrackerRow(id, changes) {
+  try {
+    const updated = await apiJson(`/api/jobscout/tracker/applications/${id}`, { method: "PATCH", json: changes });
+    trackerRows = trackerRows.map((row) => row.id === id ? updated : row);
+    renderTrackerRows();
+  } catch (error) { showTrackerError(error.message || String(error)); await loadTrackerApplications(); }
 }
 
 async function loadTrackerApplications() {
@@ -521,6 +582,36 @@ async function loadTrackerApplications() {
   } catch (error) {
     showTrackerError(error.message || String(error));
   }
+}
+
+async function loadTrackerStages() {
+  trackerStages = await apiJson("/api/jobscout/tracker/stages");
+  renderTrackerRows();
+}
+
+function renderTrackerStageEditor() {
+  const panel = $("trackerStageEditor");
+  if (!panel) return;
+  panel.replaceChildren();
+  const heading = trackerElement("strong", "", "投递环节（拖动上下按钮排序）"); panel.append(heading);
+  trackerStages.forEach((stage, index) => {
+    const line = trackerElement("div", "tracker-stage-line"); line.append(trackerElement("span", "", stage));
+    for (const [label, nextIndex] of [["↑", index - 1], ["↓", index + 1]]) {
+      const button = trackerElement("button", "secondary-btn", label); button.type = "button"; button.disabled = nextIndex < 0 || nextIndex >= trackerStages.length;
+      button.addEventListener("click", () => { [trackerStages[index], trackerStages[nextIndex]] = [trackerStages[nextIndex], trackerStages[index]]; renderTrackerStageEditor(); }); line.append(button);
+    }
+    const remove = trackerElement("button", "secondary-btn", "移除"); remove.type = "button"; remove.addEventListener("click", () => { trackerStages.splice(index, 1); renderTrackerStageEditor(); }); line.append(remove); panel.append(line);
+  });
+  const name = trackerElement("input", ""); name.placeholder = "新环节名称"; name.maxLength = 60;
+  const add = trackerElement("button", "secondary-btn", "添加"); add.type = "button"; add.addEventListener("click", () => { const value = name.value.trim(); if (value && !trackerStages.includes(value)) { trackerStages.push(value); renderTrackerStageEditor(); } });
+  const save = trackerElement("button", "primary-btn", "保存环节"); save.type = "button"; save.addEventListener("click", async () => { try { trackerStages = await apiJson("/api/jobscout/tracker/stages", { method: "PUT", json: { stages: trackerStages } }); panel.classList.add("hidden"); renderTrackerRows(); } catch (error) { showTrackerError(error.message || String(error)); } });
+  panel.append(name, add, save);
+}
+
+async function exportTrackerCsv() {
+  const response = await api("/api/jobscout/tracker/export.csv");
+  if (!response.ok) throw new Error(response.statusText || "导出失败");
+  const blob = await response.blob(); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "jobscout-applications.csv"; link.click(); URL.revokeObjectURL(link.href);
 }
 
 async function importTrackerCsv() {
@@ -549,12 +640,15 @@ async function refreshTrackerRow(applicationId) {
   setTrackerBusy(true);
   showTrackerError();
   const current = trackerRows.find((row) => row.id === applicationId);
-  setTrackerProgress(`正在检查 ${current?.company || "该岗位"}`, 0, 1, true);
+  const knownIds = new Set(trackerRows.map((row) => row.id));
+  setTrackerProgress(`正在检查 ${current?.company || "该岗位"}；如需登录会弹出浏览器窗口`, 0, 1, true);
   try {
     const outcome = await apiJson(`/api/jobscout/tracker/applications/${applicationId}/refresh`, { method: "POST" });
-    trackerRows = trackerRows.map((row) => row.id === applicationId ? outcome.application : row);
+    trackerRows = await apiJson("/api/jobscout/tracker/applications");
+    const added = trackerRows.filter((row) => !knownIds.has(row.id)).length;
     renderTrackerRows();
     setTrackerProgress(outcome.skipped ? "该岗位已是终态，已跳过" : "检查完成", 1, 1, true);
+    showTrackerResult(outcome.application, outcome.skipped ? "该记录已处于终态，本次没有重新抓取" : `刷新完成；已将页面中识别到的岗位和进度写入表格${added ? `，新增 ${added} 条岗位记录` : ""}`);
   } catch (error) {
     showTrackerError(error.message || String(error));
     setTrackerProgress("检查失败", 0, 1, true);
@@ -608,6 +702,7 @@ async function refreshAllTrackerRows() {
       if (done) break;
     }
     await loadTrackerApplications();
+    showTrackerBatchResult(trackerRows);
   } catch (error) {
     showTrackerError(error.message || String(error));
     setTrackerProgress("批量更新中断", 0, 0, true);
@@ -617,9 +712,27 @@ async function refreshAllTrackerRows() {
 }
 
 function setupTracker() {
-  $("trackerImportBtn")?.addEventListener("click", () => $("trackerCsvInput")?.click());
-  $("trackerCsvInput")?.addEventListener("change", importTrackerCsv);
   $("trackerRefreshAllBtn")?.addEventListener("click", refreshAllTrackerRows);
+  $("trackerStagesBtn")?.addEventListener("click", () => {
+    const panel = $("trackerStageEditor");
+    panel?.classList.toggle("hidden");
+    if (panel && !panel.classList.contains("hidden")) renderTrackerStageEditor();
+  });
+  $("trackerExportBtn")?.addEventListener("click", () => exportTrackerCsv().catch((error) => showTrackerError(error.message || String(error))));
+  $("trackerResultClose")?.addEventListener("click", () => $("trackerResultDialog")?.close());
+  $("trackerAddForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    try {
+      setTrackerBusy(true); showTrackerError();
+      const row = await apiJson("/api/jobscout/tracker/applications", { method: "POST", json: { company: data.get("company"), url: data.get("url"), applied_at: data.get("applied_at") || null } });
+      trackerRows = [...trackerRows.filter((item) => item.id !== row.id), row]; renderTrackerRows(); form.reset();
+      await refreshTrackerRow(row.id);
+    } catch (error) { showTrackerError(error.message || String(error)); }
+    finally { setTrackerBusy(false); }
+  });
+  Promise.all([loadTrackerStages(), loadTrackerApplications()]).catch((error) => showTrackerError(error.message || String(error)));
 }
 
 function openSidebar() {

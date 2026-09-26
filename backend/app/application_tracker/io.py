@@ -54,7 +54,8 @@ def write_status_csv(path: Path, records: list[StatusRecord]) -> None:
         writer = csv.DictWriter(handle, fieldnames=STATUS_CSV_FIELDS)
         writer.writeheader()
         for record in records:
-            writer.writerow(record.model_dump(mode="json"))
+            payload = record.model_dump(mode="json")
+            writer.writerow({field: payload[field] for field in STATUS_CSV_FIELDS})
 
 
 def write_evaluation_report(path: Path, report: EvaluationReport) -> None:

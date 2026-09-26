@@ -51,7 +51,7 @@ AGENT_SYSTEM_PROMPT = """你是单条求职申请进度的浏览器检查 Agent�
 - 只有 DOM 文本不足时才用 screenshot。
 - click 只能使用最近观察中出现的数字 ref，优先点击“查看详情、申请进度、状态”等只读入口。
 - 如果候选结果是“未知”或低置信度，并且观察中存在“详情、状态、进度”类只读 ref，必须先点击最相关的 ref 查看，不得直接提交“未知”。
-- 确认结果后必须调用 update_record。status 只能使用工具 schema 中的枚举；raw_status 和 evidence 必须逐字来自页面或截图，不得猜测。
+- 确认结果后必须调用 update_record。status 只能使用工具 schema 中的枚举；raw_status 和 evidence 必须逐字来自页面或截图，不得猜测。若岗位为待识别，请同时提供 detected_role 与逐字摘录的 role_evidence。
 - 信息不足时用“未知”，不要按常见招聘流程推断。
 """
 
@@ -202,6 +202,8 @@ class ApplicationTrackerAgent:
 
         async def open_page(_: WorkflowState) -> WorkflowState:
             payload = await toolbox.open_page()
+            if toolbox.last_access is not None and toolbox.last_access.check_result is CheckResult.LOGIN_REQUIRED:
+                payload = await toolbox.request_human_login()
             return {
                 "browser_payload": payload,
                 "page_text": toolbox.page_text,
@@ -209,7 +211,9 @@ class ApplicationTrackerAgent:
 
         def route_after_open(state: WorkflowState) -> str:
             access = toolbox.last_access
-            if access is not None and access.check_result is CheckResult.SUCCESS and bool(state.get("page_text", "").strip()):
+            if access is None or access.check_result is not CheckResult.SUCCESS:
+                return "finalize"
+            if bool(state.get("page_text", "").strip()):
                 return "extract"
             return "prepare_agent"
 
@@ -362,7 +366,7 @@ class ApplicationTrackerAgent:
         builder.add_conditional_edges(
             "open_page",
             route_after_open,
-            {"extract": "extract", "prepare_agent": "prepare_agent"},
+            {"extract": "extract", "prepare_agent": "prepare_agent", "finalize": "finalize"},
         )
         builder.add_conditional_edges(
             "extract",
@@ -384,7 +388,11 @@ class ApplicationTrackerAgent:
         return builder.compile()
 
     def _accept_fast_path(self, record: StatusRecord) -> bool:
-        return record.check_result is CheckResult.SUCCESS and record.status is not ApplicationStatus.UNKNOWN and record.confidence >= self._run_config.confidence_threshold
+        if record.check_result is not CheckResult.SUCCESS:
+            return False
+        if record.discovered_applications:
+            return all(item.confidence >= self._run_config.confidence_threshold for item in record.discovered_applications)
+        return record.status is not ApplicationStatus.UNKNOWN and record.confidence >= self._run_config.confidence_threshold
 
     @staticmethod
     def _fallback_record(

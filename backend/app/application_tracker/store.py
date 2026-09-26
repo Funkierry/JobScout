@@ -6,6 +6,7 @@ import os
 import sqlite3
 from datetime import UTC, date, datetime
 from pathlib import Path
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
@@ -40,6 +41,9 @@ class StoredApplication(BaseModel):
     applied_at: date | None
     notes: str
     status: ApplicationStatus
+    stage: str = ""
+    stage_manual: bool = False
+    role_confirmed: bool = True
     raw_status: str
     confidence: float
     evidence: str
@@ -132,6 +136,9 @@ class ApplicationTrackerStore:
                     applied_at TEXT,
                     notes TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL,
+                    stage TEXT NOT NULL DEFAULT '',
+                    stage_manual INTEGER NOT NULL DEFAULT 0,
+                    role_confirmed INTEGER NOT NULL DEFAULT 1,
                     raw_status TEXT NOT NULL DEFAULT '',
                     confidence REAL NOT NULL DEFAULT 0,
                     evidence TEXT NOT NULL DEFAULT '',
@@ -165,6 +172,84 @@ class ApplicationTrackerStore:
                     ON application_checks(user_id, application_id, id);
                 """
             )
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(applications)")}
+            for name, declaration in (("stage", "TEXT NOT NULL DEFAULT ''"), ("stage_manual", "INTEGER NOT NULL DEFAULT 0"), ("role_confirmed", "INTEGER NOT NULL DEFAULT 1")):
+                if name not in columns:
+                    connection.execute(f"ALTER TABLE applications ADD COLUMN {name} {declaration}")
+            connection.execute("UPDATE applications SET stage = status WHERE stage = ''")
+            connection.execute("CREATE TABLE IF NOT EXISTS application_stages (user_id TEXT NOT NULL, name TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY(user_id, name), UNIQUE(user_id, position))")
+
+    def list_stages(self, user_id: str) -> list[str]:
+        user_id = self._validated_user_id(user_id)
+        defaults = [status.value for status in ApplicationStatus]
+        with self._connect() as connection:
+            if not connection.execute("SELECT 1 FROM application_stages WHERE user_id = ? LIMIT 1", (user_id,)).fetchone():
+                connection.executemany("INSERT OR IGNORE INTO application_stages(user_id, name, position) VALUES (?, ?, ?)", [(user_id, name, index) for index, name in enumerate(defaults)])
+            return [row["name"] for row in connection.execute("SELECT name FROM application_stages WHERE user_id = ? ORDER BY position", (user_id,))]
+
+    def replace_stages(self, user_id: str, stages: list[str]) -> list[str]:
+        user_id = self._validated_user_id(user_id)
+        normalized = [stage.strip() for stage in stages]
+        if not normalized or any(not stage or len(stage) > 60 for stage in normalized) or len(set(normalized)) != len(normalized) or len(normalized) > 40:
+            raise ValueError("Stages must be 1-40 unique non-empty names of at most 60 characters")
+        with self._connect() as connection:
+            used = {row["stage"] for row in connection.execute("SELECT DISTINCT stage FROM applications WHERE user_id = ?", (user_id,))}
+            if not used.issubset(set(normalized)):
+                raise ValueError("A stage assigned to an application cannot be removed")
+            connection.execute("DELETE FROM application_stages WHERE user_id = ?", (user_id,))
+            connection.executemany("INSERT INTO application_stages(user_id, name, position) VALUES (?, ?, ?)", [(user_id, name, index) for index, name in enumerate(normalized)])
+        return normalized
+
+    def add_application(self, user_id: str, application: ApplicationInput) -> StoredApplication:
+        user_id = self._validated_user_id(user_id)
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO applications(user_id, company, role, url, applied_at, notes, status, stage, role_confirmed, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    user_id,
+                    application.company,
+                    application.role,
+                    application.url,
+                    application.applied_at.isoformat() if application.applied_at else None,
+                    application.notes,
+                    ApplicationStatus.UNKNOWN.value,
+                    ApplicationStatus.APPLIED.value,
+                    int(application.role != "\u5f85\u8bc6\u522b\u5c97\u4f4d"),
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute("SELECT * FROM applications WHERE user_id = ? AND url = ?", (user_id, application.url)).fetchone()
+        return self._application_from_row(row)
+
+    def update_application(self, user_id: str, application_id: int, values: dict[str, object]) -> StoredApplication | None:
+        user_id = self._validated_user_id(user_id)
+        allowed = {"company", "role", "url", "applied_at", "notes", "stage"}
+        updates = {key: value for key, value in values.items() if key in allowed and value is not None}
+        if not updates:
+            return self.get_application(user_id, application_id)
+        if "role" in updates:
+            updates["role_confirmed"] = 1
+        if "stage" in updates:
+            if updates["stage"] not in self.list_stages(user_id):
+                raise ValueError("Unknown application stage")
+            updates["stage_manual"] = 1
+        if "applied_at" in updates and isinstance(updates["applied_at"], date):
+            updates["applied_at"] = updates["applied_at"].isoformat()
+        updates["updated_at"] = datetime.now(UTC).isoformat()
+        with self._connect() as connection:
+            assignments = ", ".join(f"{key} = ?" for key in updates)
+            cursor = connection.execute(f"UPDATE applications SET {assignments} WHERE id = ? AND user_id = ?", (*updates.values(), application_id, user_id))
+            if not cursor.rowcount:
+                return None
+        return self.get_application(user_id, application_id)
+
+    def delete_application(self, user_id: str, application_id: int) -> bool:
+        user_id = self._validated_user_id(user_id)
+        with self._connect() as connection:
+            cursor = connection.execute("DELETE FROM applications WHERE id = ? AND user_id = ?", (application_id, user_id))
+            return bool(cursor.rowcount)
 
     def import_applications(
         self,
@@ -268,22 +353,32 @@ class ApplicationTrackerStore:
             had_baseline = successful_check is not None
             successful = record.check_result is CheckResult.SUCCESS
             old_status = ApplicationStatus(row["status"]) if had_baseline else None
-            status_changed = bool(successful and had_baseline and old_status != record.status)
+            discovered = {item.role: item for item in record.discovered_applications}
+            primary_role = record.detected_role if record.detected_role and not row["role_confirmed"] else row["role"]
+            primary_discovery = discovered.get(primary_role)
+            detected_status = primary_discovery.status if primary_discovery else record.status
+            status_changed = bool(successful and had_baseline and old_status != detected_status)
 
             if successful:
-                new_status = record.status
-                raw_status = record.raw_status
-                confidence = record.confidence
-                evidence = record.evidence
+                new_status = primary_discovery.status if primary_discovery else record.status
+                raw_status = primary_discovery.raw_status if primary_discovery else record.raw_status
+                confidence = primary_discovery.confidence if primary_discovery else record.confidence
+                evidence = primary_discovery.evidence if primary_discovery else record.evidence
                 changed_at = record.checked_at if status_changed or not had_baseline else self._parse_datetime(row["changed_at"])
                 if changed_at is None:
                     changed_at = record.checked_at
+                detected_role = record.detected_role if record.detected_role and not row["role_confirmed"] else row["role"]
+                detected_role_confirmed = int(bool(record.detected_role) or bool(row["role_confirmed"]))
+                stage = new_status.value if not row["stage_manual"] else row["stage"]
             else:
                 new_status = ApplicationStatus(row["status"])
                 raw_status = row["raw_status"]
                 confidence = float(row["confidence"])
                 evidence = row["evidence"]
                 changed_at = self._parse_datetime(row["changed_at"]) or record.checked_at
+                detected_role = row["role"]
+                detected_role_confirmed = row["role_confirmed"]
+                stage = row["stage"]
 
             connection.execute(
                 """
@@ -298,9 +393,9 @@ class ApplicationTrackerStore:
                     user_id,
                     old_status.value if old_status else None,
                     new_status.value,
-                    record.raw_status,
-                    record.confidence,
-                    record.evidence,
+                    raw_status if successful else record.raw_status,
+                    confidence if successful else record.confidence,
+                    evidence if successful else record.evidence,
                     record.check_result.value,
                     record.checked_at.isoformat(),
                     changed_at.isoformat(),
@@ -310,13 +405,16 @@ class ApplicationTrackerStore:
             connection.execute(
                 """
                 UPDATE applications
-                SET status = ?, raw_status = ?, confidence = ?, evidence = ?,
+                SET status = ?, stage = ?, role = ?, role_confirmed = ?, raw_status = ?, confidence = ?, evidence = ?,
                     checked_at = ?, changed_at = ?, check_result = ?,
                     previous_status = ?, last_check_changed = ?, updated_at = ?
                 WHERE id = ? AND user_id = ?
                 """,
                 (
                     new_status.value,
+                    stage,
+                    detected_role,
+                    detected_role_confirmed,
                     raw_status,
                     confidence,
                     evidence,
@@ -334,6 +432,47 @@ class ApplicationTrackerStore:
                 "SELECT * FROM applications WHERE user_id = ? AND id = ?",
                 (user_id, application_id),
             ).fetchone()
+            if successful:
+                for item in record.discovered_applications:
+                    if item.role == primary_role:
+                        continue
+                    parts = urlsplit(record.url)
+                    base_fragment = "&".join(part for part in parts.fragment.split("&") if not part.startswith("jobscout-role="))
+                    role_fragment = f"{base_fragment + '&' if base_fragment else ''}jobscout-role={quote(item.role, safe='')}"
+                    role_url = urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, role_fragment))
+                    if len(role_url) > 2048:
+                        continue
+                    existing = connection.execute(
+                        "SELECT id FROM applications WHERE user_id = ? AND url = ?",
+                        (user_id, role_url),
+                    ).fetchone()
+                    now = datetime.now(UTC).isoformat()
+                    if existing is None:
+                        connection.execute(
+                            "INSERT INTO applications (user_id, company, role, url, applied_at, notes, status, stage, role_confirmed, raw_status, confidence, evidence, checked_at, changed_at, check_result, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (user_id, row["company"], item.role, role_url, row["applied_at"], row["notes"], item.status.value, item.status.value, item.raw_status, item.confidence, item.evidence, record.checked_at.isoformat(), record.checked_at.isoformat(), CheckResult.SUCCESS.value, now, now),
+                        )
+                        child_id = connection.execute("SELECT id FROM applications WHERE user_id = ? AND url = ?", (user_id, role_url)).fetchone()["id"]
+                        connection.execute(
+                            "INSERT INTO application_checks (application_id, user_id, old_status, new_status, raw_status, confidence, evidence, check_result, checked_at, changed_at, status_changed) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 0)",
+                            (child_id, user_id, item.status.value, item.raw_status, item.confidence, item.evidence, CheckResult.SUCCESS.value, record.checked_at.isoformat(), record.checked_at.isoformat()),
+                        )
+                    else:
+                        previous_child = connection.execute(
+                            "SELECT status, changed_at FROM applications WHERE id = ? AND user_id = ?",
+                            (existing["id"], user_id),
+                        ).fetchone()
+                        child_old_status = ApplicationStatus(previous_child["status"])
+                        child_changed = child_old_status is not item.status
+                        child_changed_at = record.checked_at if child_changed else (self._parse_datetime(previous_child["changed_at"]) or record.checked_at)
+                        connection.execute(
+                            "INSERT INTO application_checks (application_id, user_id, old_status, new_status, raw_status, confidence, evidence, check_result, checked_at, changed_at, status_changed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (existing["id"], user_id, child_old_status.value, item.status.value, item.raw_status, item.confidence, item.evidence, CheckResult.SUCCESS.value, record.checked_at.isoformat(), child_changed_at.isoformat(), int(child_changed)),
+                        )
+                        connection.execute(
+                            "UPDATE applications SET role = ?, role_confirmed = 1, status = ?, stage = CASE WHEN stage_manual = 0 THEN ? ELSE stage END, raw_status = ?, confidence = ?, evidence = ?, checked_at = ?, changed_at = ?, check_result = ?, previous_status = CASE WHEN ? THEN ? ELSE previous_status END, last_check_changed = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                            (item.role, item.status.value, item.status.value, item.raw_status, item.confidence, item.evidence, record.checked_at.isoformat(), child_changed_at.isoformat(), CheckResult.SUCCESS.value, int(child_changed), child_old_status.value, int(child_changed), now, existing["id"], user_id),
+                        )
         if updated is None:  # pragma: no cover - transaction invariant
             raise RuntimeError("Stored application disappeared after update")
         return self._application_from_row(updated)
@@ -367,6 +506,9 @@ class ApplicationTrackerStore:
             applied_at=date.fromisoformat(row["applied_at"]) if row["applied_at"] else None,
             notes=row["notes"],
             status=ApplicationStatus(row["status"]),
+            stage=row["stage"] or row["status"],
+            stage_manual=bool(row["stage_manual"]),
+            role_confirmed=bool(row["role_confirmed"]),
             raw_status=row["raw_status"],
             confidence=float(row["confidence"]),
             evidence=row["evidence"],

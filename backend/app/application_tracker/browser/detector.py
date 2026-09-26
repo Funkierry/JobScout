@@ -11,6 +11,24 @@ _LOGIN_URL_PATTERN = re.compile(
     r"(?:^|[/?.&=_-])(login|log-in|signin|sign-in|passport|sso|auth|oauth|authenticate|authorize)(?:$|[/?.&#=_-])",
     re.IGNORECASE,
 )
+_PRIVATE_APPLICATION_URL_PATTERN = re.compile(
+    r"(?:^|[/?.&=_-])(application|applications|application-status|candidate|my-applications|progress)(?:$|[/?.&#=_-])",
+    re.IGNORECASE,
+)
+_LOGIN_CTA_TEXT = frozenset(
+    {
+        "login",
+        "log in",
+        "sign in",
+        "登录",
+        "去登录",
+        "立即登录",
+        "请登录",
+        "请先登录",
+        "登录/注册",
+        "注册/登录",
+    }
+)
 _CHALLENGE_SELECTOR = ", ".join(
     (
         'iframe[src*="captcha" i]',
@@ -60,6 +78,8 @@ class LoginDetector:
             return LoginInspection(LoginState.LOGIN_REQUIRED, "login_url")
         if await page.locator('input[type="password"]').count() > 0:
             return LoginInspection(LoginState.LOGIN_REQUIRED, "password_input")
+        if _PRIVATE_APPLICATION_URL_PATTERN.search(page.url) and self._has_login_cta(body_text):
+            return LoginInspection(LoginState.LOGIN_REQUIRED, "login_cta")
         return LoginInspection(LoginState.AUTHENTICATED, "no_login_signal")
 
     async def _body_text(self, page: PageLike) -> str:
@@ -67,3 +87,8 @@ class LoginDetector:
             return await page.locator("body").inner_text(timeout=2_000)
         except Exception:
             return ""
+
+    @staticmethod
+    def _has_login_cta(body_text: str) -> bool:
+        lines = {re.sub(r"\s+", " ", line).strip().casefold() for line in body_text.splitlines() if line.strip()}
+        return bool(lines & _LOGIN_CTA_TEXT)

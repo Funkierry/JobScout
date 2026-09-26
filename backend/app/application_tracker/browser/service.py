@@ -219,6 +219,12 @@ class PersistentBrowserService:
                 ),
             )
             deadline = self._monotonic() + config.login_timeout_seconds
+            initial_settle = min(
+                config.login_poll_interval_seconds,
+                config.login_timeout_seconds,
+            )
+            if initial_settle > 0:
+                await self._sleep(initial_settle)
             while True:
                 page = await self._active_page(context)
                 inspection = await self._detector.inspect(page)
