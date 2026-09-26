@@ -29,6 +29,26 @@ python -m http.server 5500
 
 The Gateway must allow `http://localhost:5500` in `GATEWAY_CORS_ORIGINS`.
 
+## Application progress tracker
+
+Choose **进度追踪**, add a company and a personal application list or detail URL,
+then select **添加并识别**. If the page requires authentication, the tracker
+opens a browser window for you to complete login or verification manually. It
+then reads the authorized page and saves the detected role title, current stage,
+source evidence, and check time to the tracker table.
+
+When one application-list page clearly pairs multiple applied roles with their
+own statuses, the tracker creates a separate row for each role. Refreshes update
+those rows using the role title as the identity, so the same listing does not
+create duplicates. It only records roles and statuses supported by visible page
+text. The table supports individual or batch refresh, inline edits, custom
+stages, deletion, and CSV export. Data is stored in the Gateway's per-user
+SQLite database; this feature does not write to Feishu or another external
+spreadsheet.
+
+On Windows, the repository root includes `scripts/run-jobscout-gateway-local.cmd`
+and `scripts/run-jobscout-web-local.cmd` for starting the two local services.
+
 ## Report contract
 
 A complete request needs a company, a searchable role direction, and one of

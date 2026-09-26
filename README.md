@@ -165,6 +165,21 @@ GATEWAY_CORS_ORIGINS=http://localhost:5500,http://127.0.0.1:5500
 
 然后打开 **http://localhost:5500**，注册或登录本地 DeerFlow 账号。
 
+### 2. 求职进度追踪
+
+登录 JobScout 后打开“进度追踪”，填写公司、个人申请列表或详情页链接以及可选的投递日期，再点击“添加并识别”。如果页面需要登录，系统会打开浏览器窗口；请在窗口中手动完成登录或验证。系统读取授权页面后，会将岗位名称、当前进度、页面原文和检查时间保存到进度表。
+
+如果申请列表页面同时展示多个岗位，系统会按页面中明确对应的岗位名称和进度分别新增表格行；后续刷新会更新已有岗位记录。只有页面文本能支持岗位与进度对应关系的条目才会写入。表格支持单条刷新、批量刷新、手动修正公司/岗位/日期/环节和 CSV 导出。记录保存在 Gateway 的用户隔离 SQLite 数据库中，不会自动写入飞书或其他外部表格。
+
+Windows 本地开发可以在两个终端分别运行仓库自带的启动脚本：
+
+```powershell
+scripts\run-jobscout-gateway-local.cmd
+scripts\run-jobscout-web-local.cmd
+```
+
+启动后访问 **http://localhost:5500**。Gateway 脚本使用 `backend\.venv`，网页脚本使用 PATH 中的 `python`。
+
 > [!NOTE]
 > 本地凭据、上传文件和运行状态不会提交到 Git。飞书匹配需要先在 DeerFlow Capability Center 完成 Lark / Feishu 应用配置与用户授权。
 
@@ -173,6 +188,7 @@ GATEWAY_CORS_ORIGINS=http://localhost:5500,http://127.0.0.1:5500
 | 路径 | 作用 |
 |---|---|
 | [`jobscout-web/`](./jobscout-web/) | 无构建依赖的独立聊天工作台 |
+| [`backend/app/application_tracker/`](./backend/app/application_tracker/) | 登录后识别求职申请进度并维护岗位记录 |
 | [`skills/public/jobscout/`](./skills/public/jobscout/) | 模式、来源、工具、降级和输出契约 |
 | [`backend/app/gateway/jobscout_base.py`](./backend/app/gateway/jobscout_base.py) | 飞书 URL 校验、字段投影与有界只读上下文 |
 | [`backend/app/gateway/routers/jobscout.py`](./backend/app/gateway/routers/jobscout.py) | 认证后的 JobScout Gateway API |
