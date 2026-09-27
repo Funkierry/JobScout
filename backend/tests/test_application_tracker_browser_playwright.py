@@ -32,6 +32,9 @@ class QuietFixtureHandler(SimpleHTTPRequestHandler):
             else:
                 self._send_html('<input type="password" aria-label="Password">')
             return
+        if self.path == "/application-tabs":
+            self._send_html("""<div role="tab" onclick="setTimeout(() => document.getElementById('applications').innerText = '产品经理 已投递', 100)">我的投递</div><div id="applications">个人主页</div>""")
+            return
         super().do_GET()
 
     def _send_html(self, body: str, *, cookie: str | None = None) -> None:
@@ -156,3 +159,36 @@ async def test_real_agent_browser_can_observe_click_and_capture(
     assert opened.check_result is CheckResult.SUCCESS
     assert "Current status: Second interview" in updated_text
     assert screenshot.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_real_agent_browser_reads_application_tab_after_click(tmp_path: Path) -> None:
+    fixture_dir = Path(__file__).parent / "fixtures" / "application_tracker" / "browser"
+    handler = partial(QuietFixtureHandler, directory=str(fixture_dir))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    factory = PersistentAgentBrowserFactory()
+    browser = factory.create(
+        url=f"http://127.0.0.1:{server.server_address[1]}/application-tabs",
+        user_id="application-tabs-test-user",
+        config=BrowserAccessConfig(profile_root=tmp_path / "browser_profile", allow_private_addresses=True),
+    )
+    try:
+        opened = await browser.open_page()
+        elements = await browser.get_interactive_elements()
+        tab = next(item for item in elements if item.name == "我的投递")
+        await browser.click(tab.ref)
+        updated_text = await browser.get_page_text()
+    finally:
+        await browser.close()
+        await factory.aclose()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    if opened.error_code == "browser_unavailable":
+        pytest.skip("Playwright Chromium is not installed")
+    assert tab.role == "tab"
+    assert "产品经理 已投递" in updated_text

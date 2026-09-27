@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -135,6 +135,29 @@ async def test_click_rejects_unrecognized_actions_even_if_not_explicitly_destruc
 
 
 @pytest.mark.asyncio
+async def test_click_accepts_application_history_tab() -> None:
+    browser = FakeBrowser(element_name="我的投递")
+    toolbox = _toolbox(browser)
+    await toolbox.open_page()
+
+    await toolbox.click(ref=7)
+
+    assert browser.clicked_refs == [7]
+
+
+@pytest.mark.asyncio
+async def test_click_rejects_submit_action_even_if_it_mentions_applications() -> None:
+    browser = FakeBrowser(element_name="我的投递 - 立即投递简历")
+    toolbox = _toolbox(browser)
+    await toolbox.open_page()
+
+    with pytest.raises(ValueError, match="read-only"):
+        await toolbox.click(ref=7)
+
+    assert browser.clicked_refs == []
+
+
+@pytest.mark.asyncio
 async def test_human_login_tool_can_override_rules_but_only_once() -> None:
     browser = FakeBrowser()
     toolbox = _toolbox(browser)
@@ -178,6 +201,43 @@ async def test_unknown_status_rejects_nonempty_ungrounded_evidence() -> None:
 
     assert "error" in result.lower()
     assert toolbox.record is None
+
+
+@pytest.mark.asyncio
+async def test_agent_unknown_generic_progress_is_grouped_as_screening() -> None:
+    toolbox = _toolbox(FakeBrowser(page_text="当前申请进度：进行中"))
+    await toolbox.open_page()
+
+    result = await toolbox.update_record(
+        status=ApplicationStatus.UNKNOWN,
+        raw_status="进行中",
+        confidence=0.9,
+        evidence="当前申请进度：进行中",
+    )
+
+    assert '"updated": true' in result
+    assert toolbox.record is not None
+    assert toolbox.record.status is ApplicationStatus.RESUME_SCREENING
+    assert toolbox.record.confidence == 0.75
+
+
+@pytest.mark.asyncio
+async def test_agent_update_reads_application_date_from_current_page() -> None:
+    toolbox = _toolbox(FakeBrowser(page_text="投递时间：2026-09-10\n当前状态：简历筛选"))
+    await toolbox.open_page()
+
+    await toolbox.update_record(
+        status=ApplicationStatus.RESUME_SCREENING,
+        raw_status="简历筛选",
+        confidence=0.9,
+        evidence="当前状态：简历筛选",
+        applied_at="2026-09-10",
+        applied_at_evidence="投递时间：2026-09-10",
+    )
+
+    assert toolbox.record is not None
+    assert toolbox.record.applied_at == date(2026, 9, 10)
+    assert toolbox.record.applied_at_evidence == "投递时间：2026-09-10"
 
 
 @pytest.mark.asyncio

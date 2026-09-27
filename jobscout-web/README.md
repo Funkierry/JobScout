@@ -5,7 +5,29 @@ the interaction in a chat thread, uploads resumes with DeerFlow's native file
 metadata shape, force-activates the `/jobscout` skill on every turn, and renders
 the final evidence-backed report inline with print and Markdown download actions.
 The header switches between public-source interview preparation and private
-Feishu Base resume matching.
+Feishu Base resume matching. The progress tracker is a third workspace section.
+
+## Linked target roles
+
+Use the **目标岗位** selector to keep matching, interview preparation, and
+application progress together. Create a target directly, save a verified role
+from a Feishu matching report, associate an interview report, or use **关联目标**
+on a tracker row. The target remembers its preparation and matching threads;
+switching modes restores the linked thread for that mode instead of mixing
+both tasks in one conversation. A saved Feishu role retains its table/record
+identity and a bounded JD snapshot so interview preparation can start from the
+selected role. That private JD is treated as user-provided context, not a public
+source. Matching still requires a resume on the current turn.
+
+The matching report offers **保存并准备** for recommended rows whose record IDs
+match the Base response. Up to ten verified candidates are saved with the
+matching thread so these actions work when that report is reopened. Older
+reports without a saved candidate snapshot need a new matching run. From a
+linked tracker row, **准备面试 / 准备下一轮** places the current stage into the
+preparation composer for review before sending. Linking a target does not
+submit an application: progress tracking still needs the user's own official
+application list or detail URL. Deleting a target removes its links while
+keeping the existing conversations and tracker rows.
 
 ## Main workspace
 
@@ -35,17 +57,26 @@ Choose **进度追踪**, add a company and a personal application list or detail
 then select **添加并识别**. If the page requires authentication, the tracker
 opens a browser window for you to complete login or verification manually. It
 then reads the authorized page and saves the detected role title, current stage,
-source evidence, and check time to the tracker table.
+source evidence, and check time to the tracker table. The application date is
+read from the official page when its quoted submission evidence supports it;
+there is no date field to fill in the add form.
 
 When one application-list page clearly pairs multiple applied roles with their
 own statuses, the tracker creates a separate row for each role. Refreshes update
 those rows using the role title as the identity, so the same listing does not
 create duplicates. Once a concrete role is saved, the unidentified placeholder
 for that same page is removed. It only records roles and statuses supported by visible page
-text. The table supports individual or batch refresh, inline edits, custom
+text. The table shows the current-stage wait as a lower bound from the first
+time that stage was detected, not as a claimed official stage-start date. It
+supports individual or batch refresh, company/role inline edits, custom
 stages, deletion, and CSV export. Data is stored in the Gateway's per-user
 SQLite database; this feature does not write to Feishu or another external
 spreadsheet.
+
+The tags above the tracker table filter by the row's current custom stage. Each
+tag shows its record count; **全部** restores the full list. The selected tag
+stays active while rows refresh, and the displayed count updates with the data.
+On narrow screens, tracker rows become cards so fields and actions remain readable.
 
 The table marks terminated or rejected applications in red, normal progress
 and offers in green, and unknown or review-needed rows in a neutral color.

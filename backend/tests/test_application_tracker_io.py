@@ -51,6 +51,8 @@ def test_write_status_csv_uses_the_public_output_contract(tmp_path: Path) -> Non
         "raw_status",
         "confidence",
         "evidence",
+        "applied_at",
+        "applied_at_evidence",
         "checked_at",
         "changed_at",
         "check_result",

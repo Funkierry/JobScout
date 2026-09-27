@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from app.application_tracker.browser.live_session import AgentBrowser
 from app.application_tracker.browser.models import BrowserAccessResult
+from app.application_tracker.dates import parse_grounded_applied_at
 from app.application_tracker.models import (
     ApplicationInput,
     ApplicationStatus,
@@ -19,6 +20,7 @@ from app.application_tracker.models import (
     StatusExtraction,
     StatusRecord,
 )
+from app.application_tracker.status_semantics import normalize_generic_active_status
 
 _VISUAL_CONFIDENCE_CAP = 0.69
 _DESTRUCTIVE_CLICK_MARKERS = (
@@ -35,6 +37,18 @@ _DESTRUCTIVE_CLICK_MARKERS = (
     "提交申请",
     "接受offer",
     "拒绝offer",
+    "立即投递",
+    "投递简历",
+    "提交投递",
+)
+_APPLICATION_LISTING_CLICK_MARKERS = (
+    "我的投递",
+    "投递记录",
+    "投递进度",
+    "我的申请",
+    "申请记录",
+    "应聘记录",
+    "我的应聘",
 )
 _READ_ONLY_CLICK_MARKERS = (
     "view",
@@ -50,7 +64,7 @@ _READ_ONLY_CLICK_MARKERS = (
     "进度",
     "流程",
     "面试安排",
-    "我的申请",
+    *_APPLICATION_LISTING_CLICK_MARKERS,
 )
 
 
@@ -118,6 +132,17 @@ class ApplicationTrackerToolbox:
         self.page_text = (await self.browser.get_page_text())[: self.max_page_chars]
         return await self._page_payload(action=f"clicked_ref_{ref}")
 
+    async def navigate_application_listing(self) -> bool:
+        """Open a known read-only application tab when the landing page has no status."""
+        for marker in _APPLICATION_LISTING_CLICK_MARKERS:
+            normalized_marker = "".join(marker.casefold().split())
+            for ref, name in self._element_names.items():
+                normalized_name = "".join(name.casefold().split())
+                if normalized_name.startswith(normalized_marker):
+                    await self.click(ref=ref)
+                    return True
+        return False
+
     async def screenshot(self) -> ScreenshotObservation:
         data = await self.browser.screenshot()
         if len(data) > self.max_screenshot_bytes:
@@ -142,6 +167,8 @@ class ApplicationTrackerToolbox:
         evidence: str,
         detected_role: str = "",
         role_evidence: str = "",
+        applied_at: str = "",
+        applied_at_evidence: str = "",
     ) -> str:
         try:
             extraction = StatusExtraction(
@@ -151,6 +178,8 @@ class ApplicationTrackerToolbox:
                 evidence=evidence,
                 detected_role=detected_role,
                 role_evidence=role_evidence,
+                applied_at=applied_at,
+                applied_at_evidence=applied_at_evidence,
             )
         except ValidationError as exc:
             return self._error(f"invalid status fields: {exc.errors()[0]['msg']}")
@@ -166,17 +195,32 @@ class ApplicationTrackerToolbox:
         else:
             confidence = extraction.confidence
 
+        status, confidence = normalize_generic_active_status(
+            extraction.status,
+            raw_status=extraction.raw_status,
+            evidence=extraction.evidence,
+            confidence=confidence,
+        )
+        parsed_applied_at, grounded_applied_at_evidence = parse_grounded_applied_at(
+            extraction.applied_at,
+            extraction.applied_at_evidence,
+            page_text=self.page_text,
+            checked_at=self.checked_at,
+        )
+
         changed_at = self.checked_at
-        if self.previous is not None and self.previous.status is extraction.status:
+        if self.previous is not None and self.previous.status is status:
             changed_at = self.previous.changed_at
         self.record = StatusRecord(
             company=self.application.company,
             role=self.application.role,
             url=self.application.url,
-            status=extraction.status,
+            status=status,
             raw_status=extraction.raw_status,
             confidence=confidence,
             evidence=extraction.evidence,
+            applied_at=parsed_applied_at,
+            applied_at_evidence=grounded_applied_at_evidence,
             detected_role=extraction.detected_role if role_grounded else "",
             checked_at=self.checked_at,
             changed_at=changed_at,
@@ -260,6 +304,8 @@ class ApplicationTrackerToolbox:
             evidence: str,
             detected_role: str = "",
             role_evidence: str = "",
+            applied_at: str = "",
+            applied_at_evidence: str = "",
         ) -> str:
             """Validate and accept the normalized status for this application."""
             return await toolbox.update_record(
@@ -269,6 +315,8 @@ class ApplicationTrackerToolbox:
                 evidence=evidence,
                 detected_role=detected_role,
                 role_evidence=role_evidence,
+                applied_at=applied_at,
+                applied_at_evidence=applied_at_evidence,
             )
 
         return [

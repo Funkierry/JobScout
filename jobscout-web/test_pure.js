@@ -4,6 +4,7 @@
 // Not a permanent test suite; delete once real browser testing is possible.
 
 const assert = require("assert");
+const fs = require("fs");
 const {
   markdownToHtml,
   extractLastVisibleAiText,
@@ -11,9 +12,15 @@ const {
   normalizeReportMarkdownForRender,
   sanitizeJobScoutReportMarkdown,
   buildBaseMatchPrompt,
+  parsePrepReportTarget,
+  recommendedBaseRecords,
   withSkillPrefix,
   isTerminalTrackerStatus,
   trackerRowPresentation,
+  trackerStageWaitText,
+  trackerStageLabel,
+  trackerStageFilterOptions,
+  filterTrackerRows,
   parseSseFrames,
 } = require("./app.js");
 
@@ -38,6 +45,42 @@ assert.strictEqual(changedTrackerRow.statusTone, "active");
 assert.strictEqual(trackerRowPresentation({ status: "流程终止", checked_at: "2026-09-27T04:00:00Z", confidence: 0.95 }).statusTone, "stopped");
 assert.strictEqual(trackerRowPresentation({ status: "未通过", checked_at: "2026-09-27T04:00:00Z", confidence: 0.95 }).statusTone, "stopped");
 assert.strictEqual(trackerRowPresentation({ status: "Offer", checked_at: "2026-09-27T04:00:00Z", confidence: 0.95 }).statusTone, "active");
+assert.strictEqual(
+  trackerStageWaitText(
+    { status: "简历筛选", changed_at: "2026-09-24T04:00:00Z" },
+    new Date("2026-09-27T05:00:00Z"),
+  ),
+  "至少 3 天（自首次识别）",
+);
+assert.strictEqual(trackerStageWaitText({ status: "流程终止", changed_at: "2026-09-24T04:00:00Z" }), "流程已结束");
+assert.strictEqual(trackerStageWaitText({ status: "未知", changed_at: "2026-09-24T04:00:00Z" }), "阶段待确认");
+assert.strictEqual(trackerStageWaitText({ status: "简历筛选", stage_manual: true, changed_at: "2026-09-24T04:00:00Z" }), "手动环节，起点待确认");
+const taggedRows = [
+  { id: 1, stage: "一面", status: "简历筛选" },
+  { id: 2, stage: "已投递", status: "已投递" },
+  { id: 3, stage: "一面", status: "一面" },
+  { id: 4, status: "未知" },
+];
+assert.strictEqual(trackerStageLabel(taggedRows[0]), "一面", "manual stage takes precedence over detected status");
+assert.deepStrictEqual(trackerStageFilterOptions(taggedRows, ["已投递", "一面", "Offer"]), [
+  { label: "已投递", count: 1 },
+  { label: "一面", count: 2 },
+  { label: "未知", count: 1 },
+]);
+assert.deepStrictEqual(filterTrackerRows(taggedRows, "一面").map((row) => row.id), [1, 3]);
+assert.strictEqual(filterTrackerRows(taggedRows, null).length, 4);
+assert.strictEqual(filterTrackerRows(taggedRows, "Offer").length, 0);
+assert.deepStrictEqual(parsePrepReportTarget("# 星河科技 · AI 产品经理 面试准备包\n\n> 招聘类型：社招"), {
+  company: "星河科技", role: "AI 产品经理", recruitmentType: "社招",
+});
+const baseCandidates = recommendedBaseRecords(
+  "# 简历 × 飞书岗位匹配报告\n\n## 推荐岗位\n| 排名 | 匹配度 | 公司 / 岗位 | 核心匹配 | 主要差距 | 建议动作 | 记录标识 |\n|---|---:|---|---|---|---|---|\n| 1 | 87 | 星河科技 / AI 产品经理 | Agent | 商业化 | 准备面试 | rec1 |\n\n## 匹配依据\n- 结束",
+  { records: [{ record_id: "rec1", 公司: "星河科技", 岗位: "AI 产品经理", 岗位要求: "熟悉 Agent" }, { record_id: "rec2", 公司: "其他公司", 岗位: "后端工程师" }] },
+);
+assert.deepStrictEqual(baseCandidates, [{ recordId: "rec1", company: "星河科技", role: "AI 产品经理", jdText: "岗位要求：熟悉 Agent" }]);
+const trackerHtml = fs.readFileSync(require("path").join(__dirname, "index.html"), "utf8");
+assert.ok(!trackerHtml.includes('name="applied_at"'), "the add form must not ask the user for an application date");
+assert.ok(trackerHtml.includes("<th>本阶段等待</th>"), "the tracker table must display stage waiting time");
 
 const uncertainTrackerRow = trackerRowPresentation({
   status: "未知",

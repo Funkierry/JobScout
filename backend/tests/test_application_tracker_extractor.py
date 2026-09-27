@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -7,9 +7,11 @@ from app.application_tracker.models import (
     ApplicationInput,
     ApplicationStatus,
     CheckResult,
+    DiscoveredApplication,
     StatusExtraction,
     StatusRecord,
 )
+from app.application_tracker.status_semantics import normalize_generic_active_status
 
 
 class StubStructuredModel:
@@ -150,3 +152,193 @@ def test_model_failure_does_not_abort_the_row() -> None:
 
     assert result.status is ApplicationStatus.UNKNOWN
     assert result.check_result is CheckResult.FETCH_FAILED
+
+
+def test_generic_current_application_progress_is_grouped_as_screening() -> None:
+    model = StubStructuredModel(
+        StatusExtraction(
+            status=ApplicationStatus.UNKNOWN,
+            raw_status="进行中",
+            confidence=0.91,
+            evidence="当前申请进度：进行中",
+        )
+    )
+
+    result = StatusExtractor(model).extract(_application(), "当前申请进度：进行中")
+
+    assert result.status is ApplicationStatus.RESUME_SCREENING
+    assert result.raw_status == "进行中"
+    assert result.evidence == "当前申请进度：进行中"
+    assert result.confidence == 0.75
+    assert "进行中" in str(model.calls[0][0].content)
+    assert "更具体环节" in str(model.calls[0][0].content)
+
+
+def test_ongoing_wording_next_to_application_submission_is_grouped_as_screening() -> None:
+    model = StubStructuredModel(
+        StatusExtraction(
+            status=ApplicationStatus.UNKNOWN,
+            raw_status="进行中",
+            confidence=0.9,
+            evidence="欢迎投递示例集团-进行中",
+        )
+    )
+
+    result = StatusExtractor(model).extract(_application(), "欢迎投递示例集团-进行中")
+
+    assert result.status is ApplicationStatus.RESUME_SCREENING
+    assert result.raw_status == "进行中"
+    assert result.evidence == "欢迎投递示例集团-进行中"
+    assert result.confidence == 0.75
+
+
+def test_generic_progress_does_not_override_explicit_assessment() -> None:
+    status, confidence = normalize_generic_active_status(
+        ApplicationStatus.ASSESSMENT,
+        raw_status="进行中",
+        evidence="当前测评进度：进行中",
+        confidence=0.94,
+    )
+
+    assert status is ApplicationStatus.ASSESSMENT
+    assert confidence == 0.94
+
+
+def test_unrelated_activity_is_not_classified_as_application_progress() -> None:
+    status, confidence = normalize_generic_active_status(
+        ApplicationStatus.UNKNOWN,
+        raw_status="进行中",
+        evidence="直播活动进行中",
+        confidence=0.9,
+    )
+
+    assert status is ApplicationStatus.UNKNOWN
+    assert confidence == 0.9
+
+
+def test_termination_signal_blocks_generic_active_fallback() -> None:
+    status, confidence = normalize_generic_active_status(
+        ApplicationStatus.UNKNOWN,
+        raw_status="进行中",
+        evidence="当前申请进度：进行中；实际已终止",
+        confidence=0.9,
+    )
+
+    assert status is ApplicationStatus.UNKNOWN
+    assert confidence == 0.9
+
+
+def test_specific_interview_wording_blocks_generic_active_fallback() -> None:
+    status, confidence = normalize_generic_active_status(
+        ApplicationStatus.UNKNOWN,
+        raw_status="in progress",
+        evidence="Application status: Interview in progress",
+        confidence=0.9,
+    )
+
+    assert status is ApplicationStatus.UNKNOWN
+    assert confidence == 0.9
+
+
+def test_generic_phrase_must_be_part_of_its_application_evidence() -> None:
+    status, confidence = normalize_generic_active_status(
+        ApplicationStatus.UNKNOWN,
+        raw_status="进行中",
+        evidence="当前申请进度：待定",
+        confidence=0.9,
+    )
+
+    assert status is ApplicationStatus.UNKNOWN
+    assert confidence == 0.9
+
+
+def test_generic_progress_is_normalized_for_each_discovered_role() -> None:
+    model = StubStructuredModel(
+        StatusExtraction(
+            status=ApplicationStatus.UNKNOWN,
+            confidence=0.4,
+            discovered_applications=[
+                DiscoveredApplication(
+                    role="产品经理",
+                    role_evidence="产品经理",
+                    status=ApplicationStatus.UNKNOWN,
+                    raw_status="进行中",
+                    confidence=0.9,
+                    evidence="产品经理 当前申请进度：进行中",
+                ),
+                DiscoveredApplication(
+                    role="数据分析师",
+                    role_evidence="数据分析师",
+                    status=ApplicationStatus.REJECTED,
+                    raw_status="未通过",
+                    confidence=0.95,
+                    evidence="数据分析师 当前状态：未通过",
+                ),
+            ],
+        )
+    )
+    page_text = "产品经理 当前申请进度：进行中\n数据分析师 当前状态：未通过"
+
+    result = StatusExtractor(model).extract(_application(), page_text)
+
+    assert [item.status for item in result.discovered_applications] == [
+        ApplicationStatus.RESUME_SCREENING,
+        ApplicationStatus.REJECTED,
+    ]
+    assert result.discovered_applications[0].confidence == 0.75
+
+
+def test_extracts_site_application_date_with_verbatim_evidence() -> None:
+    model = StubStructuredModel(
+        StatusExtraction(
+            status=ApplicationStatus.RESUME_SCREENING,
+            raw_status="筛选中",
+            confidence=0.92,
+            evidence="当前状态：筛选中",
+            applied_at="2026-09-15",
+            applied_at_evidence="投递时间：2026年9月15日 10:30",
+        )
+    )
+    page_text = "投递时间：2026年9月15日 10:30\n当前状态：筛选中"
+
+    result = StatusExtractor(model).extract(_application(), page_text)
+
+    assert result.applied_at == date(2026, 9, 15)
+    assert result.applied_at_evidence == "投递时间：2026年9月15日 10:30"
+    assert "applied_at_evidence" in str(model.calls[0][0].content)
+
+
+def test_discovered_roles_keep_separate_site_application_dates() -> None:
+    model = StubStructuredModel(
+        StatusExtraction(
+            status=ApplicationStatus.UNKNOWN,
+            confidence=0.4,
+            discovered_applications=[
+                DiscoveredApplication(
+                    role="产品经理",
+                    role_evidence="产品经理",
+                    status=ApplicationStatus.APPLIED,
+                    raw_status="已投递",
+                    confidence=0.92,
+                    evidence="当前状态：已投递",
+                    applied_at="2026-09-10",
+                    applied_at_evidence="产品经理 投递时间：2026-09-10",
+                ),
+                DiscoveredApplication(
+                    role="数据分析师",
+                    role_evidence="数据分析师",
+                    status=ApplicationStatus.RESUME_SCREENING,
+                    raw_status="筛选中",
+                    confidence=0.9,
+                    evidence="当前状态：筛选中",
+                    applied_at="2026-09-12",
+                    applied_at_evidence="数据分析师 投递时间：2026-09-12",
+                ),
+            ],
+        )
+    )
+    page_text = "产品经理 投递时间：2026-09-10 当前状态：已投递\n数据分析师 投递时间：2026-09-12 当前状态：筛选中"
+
+    result = StatusExtractor(model).extract(_application(), page_text)
+
+    assert [item.applied_at for item in result.discovered_applications] == ["2026-09-10", "2026-09-12"]

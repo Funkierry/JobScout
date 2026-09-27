@@ -20,6 +20,8 @@ STATUS_CSV_FIELDS = [
     "raw_status",
     "confidence",
     "evidence",
+    "applied_at",
+    "applied_at_evidence",
     "checked_at",
     "changed_at",
     "check_result",

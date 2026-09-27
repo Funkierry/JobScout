@@ -130,6 +130,8 @@ class PersistentAgentBrowser:
                 const selector = [
                     'a[href]', 'button', 'summary',
                     '[role="button"]', '[role="link"]',
+                    '[role="tab"]', '[role="menuitem"]',
+                    '[tabindex="0"]', '[onclick]',
                     'input[type="button"]', 'input[type="submit"]'
                 ].join(',');
                 const visible = element => {
@@ -181,6 +183,14 @@ class PersistentAgentBrowser:
             )
         except Exception:
             pass
+        try:
+            await page.wait_for_load_state(
+                "networkidle",
+                timeout=min(self._config.navigation_timeout_ms, 3_000),
+            )
+        except Exception:
+            pass
+        await page.wait_for_timeout(min(self._config.page_text_timeout_ms, 500))
 
     async def screenshot(self) -> bytes:
         page = self._require_page()

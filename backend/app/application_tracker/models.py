@@ -41,6 +41,8 @@ class DiscoveredApplication(BaseModel):
     raw_status: str = Field(default="", max_length=500)
     confidence: float = Field(ge=0, le=1)
     evidence: str = Field(default="", max_length=1500)
+    applied_at: str = Field(default="", max_length=40, description="该岗位在招聘页面显示的投递日期，规范化为 YYYY-MM-DD")
+    applied_at_evidence: str = Field(default="", max_length=500, description="该岗位投递日期在页面上的逐字原文")
 
     @model_validator(mode="after")
     def require_grounded_status_fields(self) -> DiscoveredApplication:
@@ -91,6 +93,8 @@ class StatusExtraction(BaseModel):
     evidence: str = Field(default="", max_length=1500, description="支持判断的页面原文片段，必须逐字引用")
     detected_role: str = Field(default="", max_length=300, description="当岗位待识别时，从页面读取的岗位名称")
     role_evidence: str = Field(default="", max_length=500, description="岗位名称对应的页面原文，必须逐字引用")
+    applied_at: str = Field(default="", max_length=40, description="当前单条申请在页面显示的投递日期，规范化为 YYYY-MM-DD")
+    applied_at_evidence: str = Field(default="", max_length=500, description="投递日期在页面上的逐字原文；不要用岗位发布日期或截止日期")
     discovered_applications: list[DiscoveredApplication] = Field(default_factory=list, max_length=100, description="登录后的岗位列表页中逐条识别到的岗位与进度")
 
     @model_validator(mode="after")
@@ -117,6 +121,8 @@ class StatusRecord(BaseModel):
     raw_status: str = Field(default="", max_length=500)
     confidence: float = Field(ge=0, le=1)
     evidence: str = Field(default="", max_length=1500)
+    applied_at: date | None = None
+    applied_at_evidence: str = Field(default="", max_length=500)
     detected_role: str = Field(default="", max_length=300)
     discovered_applications: list[DiscoveredApplication] = Field(default_factory=list, max_length=100)
     checked_at: datetime

@@ -27,6 +27,39 @@ function trackerRowPresentation(row) {
   };
 }
 
+function trackerStageWaitText(row, now = new Date()) {
+  if (!row?.status || row.status === "未知") return "阶段待确认";
+  if (row.terminal || isTerminalTrackerStatus(row.status)) return "流程已结束";
+  if (row.stage_manual) return "手动环节，起点待确认";
+  if (!row.changed_at) return "等待首次检查";
+  const started = new Date(row.changed_at);
+  const elapsed = now.getTime() - started.getTime();
+  if (!Number.isFinite(elapsed) || elapsed < 0) return "起点时间待确认";
+  const days = Math.floor(elapsed / 86400000);
+  return days < 1 ? "不足 1 天（自首次识别）" : `至少 ${days} 天（自首次识别）`;
+}
+
+function trackerStageLabel(row) {
+  return row?.stage || row?.status || "未分类";
+}
+
+function trackerStageFilterOptions(rows, stages = []) {
+  const counts = new Map();
+  for (const row of rows) {
+    const label = trackerStageLabel(row);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  const ordered = [...new Set(stages)].filter((label) => counts.has(label));
+  for (const label of counts.keys()) {
+    if (!ordered.includes(label)) ordered.push(label);
+  }
+  return ordered.map((label) => ({ label, count: counts.get(label) }));
+}
+
+function filterTrackerRows(rows, stage) {
+  return stage === null ? rows : rows.filter((row) => trackerStageLabel(row) === stage);
+}
+
 function parseSseFrames(buffer) {
   const normalized = String(buffer || "").replace(/\r\n/g, "\n");
   const frames = normalized.split("\n\n");
@@ -120,6 +153,7 @@ function onLoggedIn() {
   }
   loadThreadList();
   loadLarkStatus();
+  loadOpportunities().catch((error) => console.error("loadOpportunities failed", error));
 }
 
 let authMode = "login"; // 'login' | 'register'
@@ -165,6 +199,19 @@ function setupAuthForm() {
   $("logoutBtn").addEventListener("click", async () => {
     await api("/api/v1/auth/logout", { method: "POST" }).catch(() => {});
     currentUserEmail = null;
+    opportunities = [];
+    selectedOpportunityId = null;
+    activeThreadId = null;
+    lastBaseContext = null;
+    savedMatchCandidates = { threadId: null, candidates: [] };
+    trackerRows = [];
+    threadListCache = [];
+    hasShownWelcome = false;
+    setMode("prep", { restoreThread: false });
+    resetChat();
+    renderOpportunityBar();
+    renderTrackerRows();
+    renderThreadList();
     $("userBox").classList.add("hidden");
     show("authView");
   });
@@ -193,9 +240,174 @@ let currentMode = "prep";
 let trackerRows = [];
 let trackerBusy = false;
 let trackerStages = [];
+let trackerStageFilter = null;
+let opportunities = [];
+let selectedOpportunityId = null;
+let pendingOpportunityAction = null;
+let lastBaseContext = null;
+let savedMatchCandidates = { threadId: null, candidates: [] };
+
+function selectedOpportunity() {
+  return opportunities.find((item) => item.id === selectedOpportunityId) || null;
+}
+
+function opportunityForApplication(applicationId) {
+  return opportunities.find((item) => item.application_ids.includes(applicationId)) || null;
+}
+
+function renderOpportunityBar() {
+  const select = $("opportunitySelect");
+  if (!select) return;
+  select.replaceChildren(new Option("选择一个目标岗位", ""));
+  for (const item of opportunities) select.add(new Option(`${item.company} · ${item.role}`, String(item.id)));
+  const current = selectedOpportunity();
+  select.value = current ? String(current.id) : "";
+  $("opportunityBarActions")?.classList.toggle("hidden", !current);
+  if ($("opportunityBarHint")) {
+    $("opportunityBarHint").textContent = current
+      ? `${current.source_kind === "feishu" ? "飞书岗位" : "目标岗位"} · ${current.application_ids.length ? "已关联投递" : "尚未关联投递"}`
+      : "关联匹配、准备与投递进度";
+  }
+}
+
+async function loadOpportunities(selectId = selectedOpportunityId) {
+  const rows = await apiJson("/api/jobscout/opportunities");
+  opportunities = Array.isArray(rows) ? rows : [];
+  selectedOpportunityId = opportunities.some((item) => item.id === selectId) ? selectId : null;
+  renderOpportunityBar();
+  renderTrackerRows();
+}
+
+function restoreOpportunityThread() {
+  const opportunity = selectedOpportunity();
+  const threadId = currentMode === "prep" ? opportunity?.prep_thread_id : opportunity?.match_thread_id;
+  resetChat();
+  if (threadId) {
+    selectThread(threadId);
+  } else if (currentMode === "match" && opportunity?.source_url) {
+    $("baseUrlInput").value = opportunity.source_url;
+  }
+}
+
+function prepareSelectedOpportunity({ stage = "" } = {}) {
+  setMode("prep");
+  const opportunity = selectedOpportunity();
+  if (!opportunity) return;
+  const context = stage
+    ? `这个岗位的投递进度现在是「${stage}」。请结合已有准备内容，针对下一轮给出需要优先复习的知识点和可能的问题，并标明新增公开信息的来源。`
+    : [
+    `请为 ${opportunity.company} 的 ${opportunity.role} 岗位准备面试。`,
+    `招聘类型：${opportunity.recruitment_type || "请根据用户补充信息确认"}。`,
+    opportunity.jd_text ? `用户已授权的岗位 JD（仅作岗位要求参考，不作为公开来源）：\n${opportunity.jd_text}` : "",
+  ].filter(Boolean).join("\n\n");
+  if (opportunity.prep_thread_id && !stage) return;
+  $("composerInput").value = context;
+  autoGrowComposer();
+  $("composerInput").focus();
+}
+
+function activateOpportunity(opportunityId) {
+  selectedOpportunityId = opportunityId;
+  renderOpportunityBar();
+  if (currentMode === "prep" || currentMode === "match") restoreOpportunityThread();
+  renderTrackerRows();
+}
+
+function openOpportunityDialog({ company = "", role = "", recruitmentType = "", action = null } = {}) {
+  pendingOpportunityAction = action;
+  const existing = $("opportunityExisting");
+  existing.replaceChildren(new Option("新建目标岗位", ""));
+  for (const item of opportunities) existing.add(new Option(`${item.company} · ${item.role}`, String(item.id)));
+  $("opportunityExistingWrap").classList.toggle("hidden", !action || !opportunities.length);
+  existing.value = "";
+  $("opportunityNewFields").classList.remove("hidden");
+  $("opportunityCompany").required = true;
+  $("opportunityRole").required = true;
+  $("opportunityCompany").value = company;
+  $("opportunityRole").value = role;
+  $("opportunityRecruitmentType").value = recruitmentType;
+  $("opportunityDialogError").classList.add("hidden");
+  $("opportunityDialog").showModal();
+}
+
+async function linkCurrentOpportunityAction(opportunityId, action) {
+  if (!action) return;
+  if (action.kind === "application") {
+    await apiJson(`/api/jobscout/opportunities/${opportunityId}/applications`, { method: "POST", json: { application_id: action.applicationId } });
+  } else if (action.kind === "thread") {
+    await apiJson(`/api/jobscout/opportunities/${opportunityId}/threads`, { method: "POST", json: { thread_id: action.threadId, mode: action.mode } });
+  }
+}
+
+function setupOpportunities() {
+  $("opportunitySelect").addEventListener("change", (event) => {
+    activateOpportunity(event.target.value ? Number(event.target.value) : null);
+  });
+  $("opportunityNewBtn").addEventListener("click", () => openOpportunityDialog());
+  $("opportunityExisting").addEventListener("change", (event) => {
+    const creating = !event.target.value;
+    $("opportunityNewFields").classList.toggle("hidden", !creating);
+    $("opportunityCompany").required = creating;
+    $("opportunityRole").required = creating;
+  });
+  const close = () => $("opportunityDialog").close();
+  $("opportunityDialogClose").addEventListener("click", close);
+  $("opportunityDialogCancel").addEventListener("click", close);
+  $("opportunityForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = event.currentTarget.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      const existingId = Number($("opportunityExisting").value);
+      const opportunity = existingId
+        ? opportunities.find((item) => item.id === existingId)
+        : await apiJson("/api/jobscout/opportunities", {
+          method: "POST",
+          json: {
+            company: $("opportunityCompany").value.trim(),
+            role: $("opportunityRole").value.trim(),
+            recruitment_type: $("opportunityRecruitmentType").value,
+            source_kind: pendingOpportunityAction?.kind === "application" ? "tracker" : "manual",
+          },
+        });
+      if (!opportunity) throw new Error("目标岗位不存在，请重新选择");
+      await linkCurrentOpportunityAction(opportunity.id, pendingOpportunityAction);
+      await loadOpportunities(opportunity.id);
+      close();
+      activateOpportunity(opportunity.id);
+    } catch (error) {
+      $("opportunityDialogError").textContent = error.message || String(error);
+      $("opportunityDialogError").classList.remove("hidden");
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  $("opportunityPrepBtn").addEventListener("click", () => prepareSelectedOpportunity());
+  $("opportunityMatchBtn").addEventListener("click", () => { setMode("match"); loadLarkStatus(); });
+  $("opportunityTrackerBtn").addEventListener("click", () => {
+    setMode("tracker");
+    loadTrackerApplications();
+    const opportunity = selectedOpportunity();
+    if (opportunity && !opportunity.application_ids.length) {
+      $("trackerAddForm").elements.company.value = opportunity.company;
+      $("trackerAddForm").elements.url.focus();
+    }
+  });
+  $("opportunityDeleteBtn").addEventListener("click", async () => {
+    const opportunity = selectedOpportunity();
+    if (!opportunity || !confirm(`删除目标岗位 ${opportunity.company} · ${opportunity.role}？投递记录和对话会保留。`)) return;
+    try {
+      await apiJson(`/api/jobscout/opportunities/${opportunity.id}`, { method: "DELETE" });
+      await loadOpportunities(null);
+      if (currentMode === "prep" || currentMode === "match") resetChat();
+    } catch (error) { window.alert(error.message || String(error)); }
+  });
+  renderOpportunityBar();
+}
 
 function buildBaseMatchPrompt({ userText = "", baseContext }) {
   const compactContext = {
+    table_id: baseContext?.table_id || "",
     table_name: baseContext?.table_name || "未命名岗位表",
     record_count: Number(baseContext?.record_count || 0),
     has_more: Boolean(baseContext?.has_more),
@@ -212,6 +424,44 @@ function buildBaseMatchPrompt({ userText = "", baseContext }) {
     JSON.stringify(compactContext),
     "</job_records>",
   ].join("\n");
+}
+
+function parsePrepReportTarget(markdown) {
+  const title = String(markdown || "").match(/^#\s+(.+?)\s*[·•]\s*(.+?)\s+面试准备包\s*$/m);
+  if (!title) return null;
+  const recruitmentType = String(markdown).match(/招聘类型\s*[:：]\s*(校招|社招|实习)/)?.[1] || "";
+  return { company: title[1].trim(), role: title[2].trim(), recruitmentType };
+}
+
+function recommendedBaseRecords(markdown, baseContext) {
+  if (!baseContext?.records?.length) return [];
+  const source = String(markdown || "");
+  const heading = /^##\s+推荐岗位\s*$/m.exec(source);
+  if (!heading) return [];
+  const remaining = source.slice(heading.index + heading[0].length);
+  const nextHeading = remaining.search(/^##\s+/m);
+  const section = nextHeading >= 0 ? remaining.slice(0, nextHeading) : remaining;
+  const byId = new Map(baseContext.records.filter((record) => record.record_id).map((record) => [String(record.record_id), record]));
+  const recommended = [];
+  const seen = new Set();
+  for (const line of section.split("\n")) {
+    if (!line.trim().startsWith("|")) continue;
+    const cells = line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+    const recordId = (cells.at(-1) || "").replace(/[`*]/g, "").trim();
+    const record = byId.get(recordId);
+    if (!record || seen.has(recordId)) continue;
+    seen.add(recordId);
+    const entries = Object.entries(record);
+    const field = (pattern) => String(entries.find(([name]) => pattern.test(name))?.[1] || "").trim();
+    const reportName = (cells[2] || "").replace(/[`*]/g, "").split(/[\/／]/);
+    const company = field(/公司|企业|company/i) || reportName[0]?.trim() || "";
+    const role = field(/岗位|职位|职务|role|position/i) || reportName[1]?.trim() || "";
+    if (!company || !role) continue;
+    const jdText = entries.filter(([name]) => /职责|要求|资格|技能|描述|jd|description|requirement/i.test(name))
+      .map(([name, value]) => `${name}：${value}`).join("\n").slice(0, 8000);
+    recommended.push({ recordId, company, role, jdText });
+  }
+  return recommended.slice(0, 10);
 }
 
 // Composer message history (up-arrow recall, shell-style). Populated both by
@@ -330,7 +580,8 @@ function resetChat() {
   renderWelcomeState();
 }
 
-function setMode(mode) {
+function setMode(mode, { restoreThread = true } = {}) {
+  const previousMode = currentMode;
   currentMode = ["match", "tracker"].includes(mode) ? mode : "prep";
   $("prepModeBtn")?.classList.toggle("active", currentMode === "prep");
   $("matchModeBtn")?.classList.toggle("active", currentMode === "match");
@@ -359,6 +610,10 @@ function setMode(mode) {
       : "输入公司、岗位与招聘类型，也可以粘贴 JD…";
   }
   if ($("welcomeState") && currentMode !== "tracker") renderWelcomeState();
+  if (restoreThread && previousMode !== currentMode) {
+    if (currentMode === "tracker") resetChat();
+    else restoreOpportunityThread();
+  }
 }
 
 async function loadLarkStatus() {
@@ -448,6 +703,8 @@ function showTrackerResult(row, message = "刷新完成") {
   setText("trackerResultCompany", row.company);
   setText("trackerResultRole", row.role);
   setText("trackerResultStage", row.stage || row.status);
+  setText("trackerResultApplied", row.applied_at ? `${row.applied_at}${row.applied_at_evidence ? "" : "（历史日期，官网未核实）"}` : "官网未识别");
+  setText("trackerResultWait", trackerStageWaitText(row));
   setText("trackerResultRaw", row.raw_status);
   setText("trackerResultEvidence", row.evidence);
   setText("trackerResultChecked", formatTrackerDate(row.checked_at));
@@ -487,24 +744,55 @@ function renderTrackerRows() {
   const body = $("trackerTableBody");
   if (!body) return;
   body.replaceChildren();
-  $("trackerEmpty")?.classList.toggle("hidden", trackerRows.length > 0);
-  $("trackerTableWrap")?.classList.toggle("hidden", trackerRows.length === 0);
+  const options = trackerStageFilterOptions(trackerRows, trackerStages);
+  if (trackerStageFilter !== null && !options.some((option) => option.label === trackerStageFilter)) {
+    options.push({ label: trackerStageFilter, count: 0 });
+  }
+  const visibleRows = filterTrackerRows(trackerRows, trackerStageFilter);
+  const hasRows = trackerRows.length > 0;
+  $("trackerEmpty")?.classList.toggle("hidden", hasRows);
+  $("trackerNoResults")?.classList.toggle("hidden", !hasRows || visibleRows.length > 0);
+  $("trackerTableWrap")?.classList.toggle("hidden", visibleRows.length === 0);
+  $("trackerFilterBar")?.classList.toggle("hidden", !hasRows);
+  if ($("trackerFilterSummary")) $("trackerFilterSummary").textContent = `显示 ${visibleRows.length} / ${trackerRows.length} 条`;
+  const tags = $("trackerFilterTags");
+  if (tags) {
+    tags.replaceChildren();
+    for (const option of [{ label: "全部", count: trackerRows.length, value: null }, ...options.map((item) => ({ ...item, value: item.label }))]) {
+      const tag = trackerElement("button", "tracker-filter-tag");
+      tag.type = "button";
+      tag.setAttribute("aria-pressed", String(trackerStageFilter === option.value));
+      tag.append(trackerElement("span", "", option.label), trackerElement("span", "tracker-filter-count", String(option.count)));
+      tag.addEventListener("click", () => {
+        trackerStageFilter = option.value;
+        renderTrackerRows();
+        tags.querySelector('[aria-pressed="true"]')?.focus();
+      });
+      tags.append(tag);
+    }
+  }
 
-  for (const row of trackerRows) {
+  for (const row of visibleRows) {
     const presentation = trackerRowPresentation(row);
     const tableRow = trackerElement("tr", `tracker-row tracker-row-${presentation.tone}`);
     tableRow.classList.add(`tracker-state-${presentation.statusTone}`);
     if (presentation.needsReview) tableRow.classList.add("tracker-row-review");
 
     const identityCell = trackerElement("td", "tracker-identity");
+    identityCell.dataset.label = "公司";
     identityCell.append(makeTrackerEditor(row, "company", "公司"));
-    const queryLink = trackerElement("a", "tracker-company", "打开查询页"); queryLink.href = row.url; queryLink.target = "_blank"; queryLink.rel = "noopener noreferrer"; identityCell.append(queryLink);
+    const queryLink = trackerElement("a", "tracker-source-link", "打开查询页 ↗"); queryLink.href = row.url; queryLink.target = "_blank"; queryLink.rel = "noopener noreferrer"; identityCell.append(queryLink);
     const roleCell = trackerElement("td", "tracker-identity");
+    roleCell.dataset.label = "岗位";
     roleCell.append(makeTrackerEditor(row, "role", "岗位"));
 
     const appliedCell = trackerElement("td", "tracker-date");
-    appliedCell.append(makeTrackerEditor(row, "applied_at", "日期", "date"));
+    appliedCell.dataset.label = "投递时间";
+    appliedCell.append(trackerElement("span", "", row.applied_at || "官网未识别"));
+    if (row.applied_at_evidence) appliedCell.append(trackerElement("small", "tracker-raw", row.applied_at_evidence));
+    else if (row.applied_at) appliedCell.append(trackerElement("small", "tracker-review-label", "历史日期 · 官网未核实"));
     const stageCell = trackerElement("td", "tracker-stage-cell");
+    stageCell.dataset.label = "当前环节";
     const stageSelect = trackerElement("select", `tracker-stage-select tracker-stage-${presentation.statusTone}`);
     const availableStages = [...new Set([...trackerStages, row.stage || row.status])];
     for (const stage of availableStages) {
@@ -515,22 +803,22 @@ function renderTrackerRows() {
     }
     stageSelect.addEventListener("change", () => patchTrackerRow(row.id, { stage: stageSelect.value }));
     stageCell.append(stageSelect);
+    const waitCell = trackerElement("td", "tracker-wait");
+    waitCell.dataset.label = "本阶段等待";
+    waitCell.append(trackerElement("span", "", trackerStageWaitText(row)));
+    waitCell.title = "未从官网获取阶段开始日期时，按系统首次识别该阶段的时间计算等待下限。";
     const statusCell = trackerElement("td", "tracker-status-cell");
+    statusCell.dataset.label = "页面识别";
     statusCell.append(trackerElement("span", `tracker-status-pill tracker-status-${presentation.statusTone}`, row.raw_status || row.status));
     if (row.checked_at) statusCell.append(trackerElement("small", presentation.needsReview ? "tracker-review-label" : "tracker-raw", `${Math.round(Number(row.confidence) * 100)}%${presentation.needsReview ? " · 需确认" : " 置信度"}`));
     if (row.evidence) {
       const evidence = trackerElement("small", "tracker-raw", row.evidence);
       statusCell.append(evidence);
     }
-    if (presentation.changeText) {
-      statusCell.append(trackerElement("small", "tracker-change", presentation.changeText));
-    } else if (row.raw_status) {
-      const raw = trackerElement("small", "tracker-raw", row.raw_status);
-      if (row.evidence) raw.title = row.evidence;
-      statusCell.append(raw);
-    }
+    if (presentation.changeText) statusCell.append(trackerElement("small", "tracker-change", presentation.changeText));
 
     const checkedCell = trackerElement("td", "tracker-checked");
+    checkedCell.dataset.label = "最近检查";
     checkedCell.append(trackerElement("span", "", formatTrackerDate(row.checked_at)));
     if (row.check_result) {
       checkedCell.append(trackerElement(
@@ -541,6 +829,23 @@ function renderTrackerRows() {
     }
 
     const actionCell = trackerElement("td", "tracker-row-action");
+    actionCell.dataset.label = "操作";
+    const linkedOpportunity = opportunityForApplication(row.id);
+    const targetButton = trackerElement("button", "tracker-refresh-btn tracker-target-btn", linkedOpportunity ? (presentation.changed ? "准备下一轮" : "准备面试") : "关联目标");
+    targetButton.type = "button";
+    targetButton.addEventListener("click", () => {
+      if (linkedOpportunity) {
+        activateOpportunity(linkedOpportunity.id);
+        prepareSelectedOpportunity({ stage: row.stage || row.status });
+      } else {
+        openOpportunityDialog({
+          company: row.company,
+          role: row.role === "待识别岗位" ? "" : row.role,
+          action: { kind: "application", applicationId: row.id },
+        });
+      }
+    });
+    actionCell.append(targetButton);
     const refreshButton = trackerElement("button", "tracker-refresh-btn", presentation.terminal ? "已结束" : "刷新");
     refreshButton.type = "button";
     refreshButton.disabled = trackerBusy || !presentation.canRefresh;
@@ -550,12 +855,12 @@ function renderTrackerRows() {
     removeButton.type = "button";
     removeButton.addEventListener("click", async () => {
       if (!confirm(`确定删除 ${row.company} - ${row.role}？`)) return;
-      try { await apiJson(`/api/jobscout/tracker/applications/${row.id}`, { method: "DELETE" }); trackerRows = trackerRows.filter((item) => item.id !== row.id); renderTrackerRows(); }
+      try { await apiJson(`/api/jobscout/tracker/applications/${row.id}`, { method: "DELETE" }); trackerRows = trackerRows.filter((item) => item.id !== row.id); renderTrackerRows(); await loadOpportunities(); }
       catch (error) { showTrackerError(error.message || String(error)); }
     });
     actionCell.append(removeButton);
 
-    tableRow.append(identityCell, roleCell, appliedCell, stageCell, statusCell, checkedCell, actionCell);
+    tableRow.append(identityCell, roleCell, appliedCell, stageCell, waitCell, statusCell, checkedCell, actionCell);
     body.append(tableRow);
   }
 }
@@ -652,11 +957,14 @@ async function refreshTrackerRow(applicationId) {
     trackerRows = await apiJson("/api/jobscout/tracker/applications");
     const added = trackerRows.filter((row) => !knownIds.has(row.id)).length;
     renderTrackerRows();
+    loadOpportunities().catch((error) => console.error("loadOpportunities failed", error));
     setTrackerProgress(outcome.skipped ? "该岗位已是终态，已跳过" : "检查完成", 1, 1, true);
     showTrackerResult(outcome.application, outcome.skipped ? "该记录已处于终态，本次没有重新抓取" : `刷新完成；已将页面中识别到的岗位和进度写入表格${added ? `，新增 ${added} 条岗位记录` : ""}`);
+    return outcome.application;
   } catch (error) {
     showTrackerError(error.message || String(error));
     setTrackerProgress("检查失败", 0, 1, true);
+    return null;
   } finally {
     setTrackerBusy(false);
   }
@@ -707,6 +1015,7 @@ async function refreshAllTrackerRows() {
       if (done) break;
     }
     await loadTrackerApplications();
+    loadOpportunities().catch((error) => console.error("loadOpportunities failed", error));
     showTrackerBatchResult(trackerRows);
   } catch (error) {
     showTrackerError(error.message || String(error));
@@ -717,6 +1026,7 @@ async function refreshAllTrackerRows() {
 }
 
 function setupTracker() {
+  $("trackerClearFilter")?.addEventListener("click", () => { trackerStageFilter = null; renderTrackerRows(); });
   $("trackerRefreshAllBtn")?.addEventListener("click", refreshAllTrackerRows);
   $("trackerStagesBtn")?.addEventListener("click", () => {
     const panel = $("trackerStageEditor");
@@ -731,9 +1041,18 @@ function setupTracker() {
     const data = new FormData(form);
     try {
       setTrackerBusy(true); showTrackerError();
-      const row = await apiJson("/api/jobscout/tracker/applications", { method: "POST", json: { company: data.get("company"), url: data.get("url"), applied_at: data.get("applied_at") || null } });
+      const row = await apiJson("/api/jobscout/tracker/applications", { method: "POST", json: { company: data.get("company"), url: data.get("url") } });
       trackerRows = [...trackerRows.filter((item) => item.id !== row.id), row]; renderTrackerRows(); form.reset();
-      await refreshTrackerRow(row.id);
+      const refreshed = await refreshTrackerRow(row.id);
+      const opportunity = selectedOpportunity();
+      if (opportunity && refreshed
+          && refreshed.company.trim() === opportunity.company.trim()
+          && refreshed.role.trim() === opportunity.role.trim()) {
+        await linkCurrentOpportunityAction(opportunity.id, { kind: "application", applicationId: refreshed.id });
+        await loadOpportunities(opportunity.id);
+      } else if (opportunity && refreshed) {
+        showTrackerError("已识别投递岗位。请在对应记录点击「关联目标」，确认要关联的岗位。");
+      }
     } catch (error) { showTrackerError(error.message || String(error)); }
     finally { setTrackerBusy(false); }
   });
@@ -1036,6 +1355,14 @@ function setupComposer() {
       if (!activeThreadId) {
         const thread = await apiJson("/api/threads", { method: "POST", json: { metadata: {} } });
         activeThreadId = thread.thread_id;
+        const opportunity = selectedOpportunity();
+        if (opportunity) {
+          await apiJson(`/api/jobscout/opportunities/${opportunity.id}/threads`, {
+            method: "POST",
+            json: { thread_id: activeThreadId, mode: currentMode },
+          });
+          await loadOpportunities(opportunity.id);
+        }
       }
 
       // DeerFlow's UploadsMiddleware does NOT scan the thread's upload folder
@@ -1076,6 +1403,7 @@ function setupComposer() {
         if (!baseContext?.record_count) {
           throw new Error("岗位表中没有可用于匹配的记录,请检查链接或数据表。");
         }
+        lastBaseContext = { ...baseContext, source_url: baseUrl, thread_id: activeThreadId };
         message = withSkillPrefix(buildBaseMatchPrompt({ userText: text, baseContext }));
       } else {
         message = withSkillPrefix(text || "已上传简历,请查看并纳入差距分析。");
@@ -1334,6 +1662,20 @@ async function runTurn(messageText, filesMeta) {
     }
     loadThreadList(); // fire-and-forget: picks up a newly created thread / title update
     if (looksLikeReport(text)) {
+      if (currentMode === "match" && lastBaseContext?.thread_id === activeThreadId) {
+        const candidates = recommendedBaseRecords(text, lastBaseContext);
+        try {
+          const stored = await apiJson(`/api/jobscout/match-candidates/${activeThreadId}`, {
+            method: "PUT",
+            json: {
+              source_url: lastBaseContext.source_url,
+              source_table_id: lastBaseContext.table_id,
+              candidates: candidates.map((item) => ({ record_id: item.recordId, company: item.company, role: item.role, jd_text: item.jdText })),
+            },
+          });
+          savedMatchCandidates = { threadId: activeThreadId, candidates: stored };
+        } catch (error) { console.error("save match candidates failed", error); }
+      }
       stopChatTimer("已完成");
       addChatBubble("assistant", "✅ 报告已生成,见下方:");
       renderReport(text);
@@ -1418,6 +1760,60 @@ function renderReport(markdown) {
   actions.appendChild(downloadBtn);
   wrap.appendChild(actions);
 
+  if (activeThreadId) {
+    const matchReport = sanitizedMarkdown.includes("简历 × 飞书岗位匹配报告");
+    const panel = trackerElement("div", "report-link-panel");
+    panel.append(trackerElement("strong", "", matchReport ? "把推荐岗位加入求职流程" : "把准备报告关联到目标岗位"));
+    const list = trackerElement("div", "report-link-list");
+    if (matchReport) {
+      const context = lastBaseContext?.thread_id === activeThreadId ? lastBaseContext : null;
+      const candidates = context
+        ? recommendedBaseRecords(sanitizedMarkdown, context).map((item) => ({
+          ...item, sourceUrl: context.source_url, sourceTableId: context.table_id,
+        }))
+        : (savedMatchCandidates.threadId === activeThreadId ? savedMatchCandidates.candidates.map((item) => ({
+          recordId: item.record_id, company: item.company, role: item.role,
+          jdText: item.jd_text, sourceUrl: item.source_url, sourceTableId: item.source_table_id,
+        })) : []);
+      for (const candidate of candidates) {
+        const button = trackerElement("button", "", `${candidate.company} · ${candidate.role}  保存并准备`);
+        button.type = "button";
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try {
+            const opportunity = await apiJson("/api/jobscout/opportunities", {
+              method: "POST",
+              json: {
+                company: candidate.company, role: candidate.role, source_kind: "feishu",
+                source_url: candidate.sourceUrl, source_table_id: candidate.sourceTableId,
+                source_record_id: candidate.recordId, jd_text: candidate.jdText,
+              },
+            });
+            await linkCurrentOpportunityAction(opportunity.id, { kind: "thread", threadId: activeThreadId, mode: "match" });
+            await loadOpportunities(opportunity.id);
+            activateOpportunity(opportunity.id);
+            prepareSelectedOpportunity();
+          } catch (error) {
+            window.alert(error.message || String(error));
+            button.disabled = false;
+          }
+        });
+        list.append(button);
+      }
+      if (!candidates.length) panel.append(trackerElement("span", "", "当前报告没有可校验的飞书岗位标识，请重新匹配后选择目标岗位。"));
+    } else {
+      const button = trackerElement("button", "", "保存 / 关联目标岗位");
+      button.type = "button";
+      button.addEventListener("click", () => {
+        const target = parsePrepReportTarget(sanitizedMarkdown) || {};
+        openOpportunityDialog({ ...target, action: { kind: "thread", threadId: activeThreadId, mode: "prep" } });
+      });
+      list.append(button);
+    }
+    panel.append(list);
+    wrap.append(panel);
+  }
+
   $("chatMessages").appendChild(wrap);
   scrollChatToBottom();
 }
@@ -1494,6 +1890,12 @@ function renderThreadList() {
 
 async function selectThread(threadId) {
   if (threadId === activeThreadId) return;
+  const linked = opportunities.find((item) => item.prep_thread_id === threadId || item.match_thread_id === threadId);
+  if (linked) {
+    selectedOpportunityId = linked.id;
+    renderOpportunityBar();
+    setMode(linked.match_thread_id === threadId ? "match" : "prep", { restoreThread: false });
+  }
   activeThreadId = threadId;
   closeSidebar();
   clearAttachment();
@@ -1504,7 +1906,20 @@ async function selectThread(threadId) {
   renderThreadList(); // reflect the new active selection immediately
   try {
     const state = await apiJson(`/api/threads/${threadId}/state`);
-    renderHistoryMessages(state?.values?.messages || []);
+    if (activeThreadId !== threadId) return;
+    const messages = state?.values?.messages || [];
+    if (!linked) {
+      const lastHuman = [...messages].reverse().find((message) => message.type === "human");
+      setMode(contentToText(lastHuman?.content).includes("任务模式：飞书 Base 岗位匹配") ? "match" : "prep", { restoreThread: false });
+    }
+    if (currentMode === "match") {
+      try {
+        const candidates = await apiJson(`/api/jobscout/match-candidates/${threadId}`);
+        if (activeThreadId !== threadId) return;
+        savedMatchCandidates = { threadId, candidates };
+      } catch (error) { console.error("load match candidates failed", error); }
+    }
+    renderHistoryMessages(messages);
   } catch (err) {
     addChatBubble("assistant", "⚠️ 加载历史对话失败:" + (err.message || String(err)));
   }
@@ -1650,6 +2065,7 @@ function markdownToHtml(md) {
 if (typeof document !== "undefined") {
   setupAuthForm();
   setupComposer();
+  setupOpportunities();
   setupModeSwitcher();
   setupTracker();
   setupSidebarShell();
@@ -1666,9 +2082,15 @@ if (typeof module !== "undefined") {
     normalizeReportMarkdownForRender,
     sanitizeJobScoutReportMarkdown,
     buildBaseMatchPrompt,
+    parsePrepReportTarget,
+    recommendedBaseRecords,
     withSkillPrefix,
     isTerminalTrackerStatus,
     trackerRowPresentation,
+    trackerStageWaitText,
+    trackerStageLabel,
+    trackerStageFilterOptions,
+    filterTrackerRows,
     parseSseFrames,
   };
 }

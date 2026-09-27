@@ -14,6 +14,7 @@ from app.application_tracker.models import (
     ApplicationInput,
     ApplicationStatus,
     CheckResult,
+    DiscoveredApplication,
     StatusRecord,
 )
 
@@ -27,6 +28,17 @@ class StubExtractor:
         del args, kwargs
         self.calls += 1
         return self.record
+
+
+class SequenceExtractor:
+    def __init__(self, records: Sequence[StatusRecord]) -> None:
+        self.records = list(records)
+        self.calls = 0
+
+    def extract(self, *args: Any, **kwargs: Any) -> StatusRecord:
+        del args, kwargs
+        self.calls += 1
+        return self.records.pop(0)
 
 
 class StubPlanner:
@@ -55,12 +67,14 @@ class FakeBrowser:
         login_state: LoginState = LoginState.AUTHENTICATED,
         after_click_text: str | None = None,
         login_text: str | None = None,
+        element_name: str = "View details",
     ) -> None:
         self.page_text = page_text
         self.check_result = check_result
         self.login_state = login_state
         self.after_click_text = after_click_text
         self.login_text = login_text
+        self.element_name = element_name
         self.clicks: list[int] = []
         self.screenshot_calls = 0
         self.login_calls = 0
@@ -77,7 +91,7 @@ class FakeBrowser:
         return self.page_text
 
     async def get_interactive_elements(self) -> list[InteractiveElement]:
-        return [InteractiveElement(ref=3, role="button", name="View details")]
+        return [InteractiveElement(ref=3, role="button", name=self.element_name)]
 
     async def click(self, ref: int) -> None:
         self.clicks.append(ref)
@@ -255,6 +269,80 @@ async def test_agent_can_click_details_then_update_record(tmp_path: Any) -> None
     assert result.confidence == 0.9
     assert browser.clicks == [3]
     assert len(planner.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_application_tab_is_opened_then_multiple_roles_are_extracted(tmp_path: Any) -> None:
+    browser = FakeBrowser(
+        page_text="个人主页",
+        after_click_text="我的投递\n产品经理\n已投递\n数据分析师\n简历筛选",
+        element_name="我的投递",
+    )
+    unknown = _record(ApplicationStatus.UNKNOWN, confidence=0.9, raw_status="", evidence="")
+    discovered = [
+        DiscoveredApplication(
+            role="产品经理",
+            role_evidence="产品经理",
+            status=ApplicationStatus.APPLIED,
+            raw_status="已投递",
+            confidence=0.95,
+            evidence="已投递",
+        ),
+        DiscoveredApplication(
+            role="数据分析师",
+            role_evidence="数据分析师",
+            status=ApplicationStatus.RESUME_SCREENING,
+            raw_status="简历筛选",
+            confidence=0.93,
+            evidence="简历筛选",
+        ),
+    ]
+    extractor = SequenceExtractor([unknown, unknown.model_copy(update={"discovered_applications": discovered})])
+    planner = StubPlanner()
+    agent = ApplicationTrackerAgent(
+        model=planner,
+        extractor=extractor,
+        browser_factory=FakeBrowserFactory(browser),
+    )
+
+    result = await agent.run(_application(), user_id="local-user", browser_config=_browser_config(tmp_path))
+
+    assert [item.role for item in result.discovered_applications] == ["产品经理", "数据分析师"]
+    assert browser.clicks == [3]
+    assert extractor.calls == 2
+    assert planner.calls == []
+
+
+@pytest.mark.asyncio
+async def test_agent_click_reextracts_application_list_before_single_record_update(tmp_path: Any) -> None:
+    browser = FakeBrowser(
+        page_text="个人主页",
+        after_click_text="我的投递\n产品经理\n已投递",
+        element_name="查看详情",
+    )
+    unknown = _record(ApplicationStatus.UNKNOWN, confidence=0.2, raw_status="", evidence="")
+    discovered = DiscoveredApplication(
+        role="产品经理",
+        role_evidence="产品经理",
+        status=ApplicationStatus.APPLIED,
+        raw_status="已投递",
+        confidence=0.95,
+        evidence="已投递",
+    )
+    extractor = SequenceExtractor([unknown, unknown.model_copy(update={"discovered_applications": [discovered]})])
+    planner = StubPlanner([AIMessage(content="", tool_calls=[{"name": "click", "args": {"ref": 3}, "id": "click-list"}])])
+    agent = ApplicationTrackerAgent(
+        model=planner,
+        extractor=extractor,
+        browser_factory=FakeBrowserFactory(browser),
+    )
+
+    result = await agent.run(_application(), user_id="local-user", browser_config=_browser_config(tmp_path))
+
+    assert [item.role for item in result.discovered_applications] == ["产品经理"]
+    assert browser.clicks == [3]
+    assert extractor.calls == 2
+    assert len(planner.calls) == 1
 
 
 @pytest.mark.asyncio

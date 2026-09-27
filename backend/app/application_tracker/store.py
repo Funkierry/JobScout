@@ -5,10 +5,11 @@ from __future__ import annotations
 import os
 import sqlite3
 from datetime import UTC, date, datetime
+from hashlib import sha256
 from pathlib import Path
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.application_tracker.models import (
     ApplicationInput,
@@ -39,6 +40,7 @@ class StoredApplication(BaseModel):
     role: str
     url: str
     applied_at: date | None
+    applied_at_evidence: str
     notes: str
     status: ApplicationStatus
     stage: str = ""
@@ -80,6 +82,8 @@ class StoredApplication(BaseModel):
             raw_status=self.raw_status,
             confidence=self.confidence,
             evidence=self.evidence,
+            applied_at=self.applied_at,
+            applied_at_evidence=self.applied_at_evidence,
             checked_at=self.checked_at,
             changed_at=self.changed_at,
             check_result=self.check_result,
@@ -98,6 +102,32 @@ class StoredCheck(BaseModel):
     checked_at: datetime
     changed_at: datetime
     status_changed: bool
+
+
+class StoredOpportunity(BaseModel):
+    id: int
+    company: str
+    role: str
+    recruitment_type: str
+    source_kind: str
+    source_url: str
+    source_table_id: str
+    source_record_id: str
+    jd_text: str
+    prep_thread_id: str | None = None
+    match_thread_id: str | None = None
+    application_ids: list[int] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoredMatchCandidate(BaseModel):
+    record_id: str
+    company: str
+    role: str
+    jd_text: str
+    source_url: str
+    source_table_id: str
 
 
 def default_database_path() -> Path:
@@ -134,6 +164,7 @@ class ApplicationTrackerStore:
                     role TEXT NOT NULL,
                     url TEXT NOT NULL,
                     applied_at TEXT,
+                    applied_at_evidence TEXT NOT NULL DEFAULT '',
                     notes TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL,
                     stage TEXT NOT NULL DEFAULT '',
@@ -173,11 +204,241 @@ class ApplicationTrackerStore:
                 """
             )
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(applications)")}
-            for name, declaration in (("stage", "TEXT NOT NULL DEFAULT ''"), ("stage_manual", "INTEGER NOT NULL DEFAULT 0"), ("role_confirmed", "INTEGER NOT NULL DEFAULT 1")):
+            for name, declaration in (
+                ("stage", "TEXT NOT NULL DEFAULT ''"),
+                ("stage_manual", "INTEGER NOT NULL DEFAULT 0"),
+                ("role_confirmed", "INTEGER NOT NULL DEFAULT 1"),
+                ("applied_at_evidence", "TEXT NOT NULL DEFAULT ''"),
+            ):
                 if name not in columns:
                     connection.execute(f"ALTER TABLE applications ADD COLUMN {name} {declaration}")
             connection.execute("UPDATE applications SET stage = status WHERE stage = ''")
             connection.execute("CREATE TABLE IF NOT EXISTS application_stages (user_id TEXT NOT NULL, name TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY(user_id, name), UNIQUE(user_id, position))")
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS jobscout_opportunities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    company TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    recruitment_type TEXT NOT NULL DEFAULT '',
+                    source_kind TEXT NOT NULL DEFAULT 'manual',
+                    source_url TEXT NOT NULL DEFAULT '',
+                    source_table_id TEXT NOT NULL DEFAULT '',
+                    source_record_id TEXT NOT NULL DEFAULT '',
+                    source_identity TEXT,
+                    jd_text TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(user_id, source_identity)
+                );
+                CREATE INDEX IF NOT EXISTS idx_jobscout_opportunities_user
+                    ON jobscout_opportunities(user_id, updated_at DESC);
+                CREATE TABLE IF NOT EXISTS jobscout_opportunity_threads (
+                    thread_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    opportunity_id INTEGER NOT NULL REFERENCES jobscout_opportunities(id) ON DELETE CASCADE,
+                    mode TEXT NOT NULL CHECK(mode IN ('prep', 'match')),
+                    linked_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_jobscout_opportunity_threads
+                    ON jobscout_opportunity_threads(user_id, opportunity_id, mode, linked_at DESC);
+                CREATE TABLE IF NOT EXISTS jobscout_opportunity_applications (
+                    application_id INTEGER PRIMARY KEY REFERENCES applications(id) ON DELETE CASCADE,
+                    user_id TEXT NOT NULL,
+                    opportunity_id INTEGER NOT NULL REFERENCES jobscout_opportunities(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_jobscout_opportunity_applications
+                    ON jobscout_opportunity_applications(user_id, opportunity_id);
+                CREATE TABLE IF NOT EXISTS jobscout_match_candidates (
+                    thread_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    record_id TEXT NOT NULL,
+                    company TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    jd_text TEXT NOT NULL DEFAULT '',
+                    source_url TEXT NOT NULL,
+                    source_table_id TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    PRIMARY KEY(thread_id, record_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_jobscout_match_candidates_user
+                    ON jobscout_match_candidates(user_id, thread_id, position);
+                """
+            )
+
+    def replace_match_candidates(
+        self,
+        user_id: str,
+        thread_id: str,
+        *,
+        source_url: str,
+        source_table_id: str,
+        candidates: list[dict[str, str]],
+    ) -> list[StoredMatchCandidate]:
+        user_id = self._validated_user_id(user_id)
+        if not thread_id or not source_url or not source_table_id or len(candidates) > 10:
+            raise ValueError("Invalid match candidates")
+        ids = [candidate.get("record_id", "") for candidate in candidates]
+        if len(set(ids)) != len(ids) or any(not value or len(value) > 200 for value in ids):
+            raise ValueError("Match candidates need unique record IDs")
+        with self._connect() as connection:
+            connection.execute("DELETE FROM jobscout_match_candidates WHERE user_id = ? AND thread_id = ?", (user_id, thread_id))
+            connection.executemany(
+                """INSERT INTO jobscout_match_candidates
+                   (thread_id, user_id, record_id, company, role, jd_text, source_url, source_table_id, position)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [(thread_id, user_id, candidate["record_id"], candidate["company"], candidate["role"], candidate.get("jd_text", ""), source_url, source_table_id, index) for index, candidate in enumerate(candidates)],
+            )
+        return self.list_match_candidates(user_id, thread_id)
+
+    def list_match_candidates(self, user_id: str, thread_id: str) -> list[StoredMatchCandidate]:
+        user_id = self._validated_user_id(user_id)
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM jobscout_match_candidates WHERE user_id = ? AND thread_id = ? ORDER BY position",
+                (user_id, thread_id),
+            ).fetchall()
+        return [
+            StoredMatchCandidate(
+                record_id=row["record_id"],
+                company=row["company"],
+                role=row["role"],
+                jd_text=row["jd_text"],
+                source_url=row["source_url"],
+                source_table_id=row["source_table_id"],
+            )
+            for row in rows
+        ]
+
+    def create_opportunity(
+        self,
+        user_id: str,
+        *,
+        company: str,
+        role: str,
+        recruitment_type: str = "",
+        source_kind: str = "manual",
+        source_url: str = "",
+        source_table_id: str = "",
+        source_record_id: str = "",
+        jd_text: str = "",
+    ) -> StoredOpportunity:
+        user_id = self._validated_user_id(user_id)
+        company, role = company.strip(), role.strip()
+        if not company or not role or len(company) > 200 or len(role) > 300:
+            raise ValueError("Company and role are required and must fit their limits")
+        if source_kind not in {"manual", "feishu", "tracker"}:
+            raise ValueError("Unknown opportunity source")
+        if source_kind == "feishu" and not (source_url and source_table_id and source_record_id):
+            raise ValueError("Feishu source needs URL, table ID and record ID")
+        if len(jd_text) > 8000:
+            raise ValueError("Job description is too long")
+        identity = None
+        if source_kind == "feishu":
+            identity = sha256(f"{source_url}\n{source_table_id}\n{source_record_id}".encode()).hexdigest()
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT OR IGNORE INTO jobscout_opportunities
+                   (user_id, company, role, recruitment_type, source_kind, source_url,
+                    source_table_id, source_record_id, source_identity, jd_text, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (user_id, company, role, recruitment_type, source_kind, source_url, source_table_id, source_record_id, identity, jd_text, now, now),
+            )
+            if identity:
+                row = connection.execute(
+                    "SELECT id FROM jobscout_opportunities WHERE user_id = ? AND source_identity = ?",
+                    (user_id, identity),
+                ).fetchone()
+            else:
+                row = connection.execute("SELECT last_insert_rowid() AS id").fetchone()
+        return self.get_opportunity(user_id, row["id"])
+
+    def list_opportunities(self, user_id: str) -> list[StoredOpportunity]:
+        user_id = self._validated_user_id(user_id)
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id FROM jobscout_opportunities WHERE user_id = ? ORDER BY updated_at DESC, id DESC",
+                (user_id,),
+            ).fetchall()
+        return [opportunity for row in rows if (opportunity := self.get_opportunity(user_id, row["id"])) is not None]
+
+    def get_opportunity(self, user_id: str, opportunity_id: int) -> StoredOpportunity | None:
+        user_id = self._validated_user_id(user_id)
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM jobscout_opportunities WHERE user_id = ? AND id = ?",
+                (user_id, opportunity_id),
+            ).fetchone()
+            if row is None:
+                return None
+            threads = connection.execute(
+                "SELECT mode, thread_id FROM jobscout_opportunity_threads WHERE user_id = ? AND opportunity_id = ? ORDER BY linked_at DESC, rowid DESC",
+                (user_id, opportunity_id),
+            ).fetchall()
+            applications = connection.execute(
+                "SELECT application_id FROM jobscout_opportunity_applications WHERE user_id = ? AND opportunity_id = ? ORDER BY application_id",
+                (user_id, opportunity_id),
+            ).fetchall()
+        latest_threads = {item["mode"]: item["thread_id"] for item in reversed(threads)}
+        return StoredOpportunity(
+            id=row["id"],
+            company=row["company"],
+            role=row["role"],
+            recruitment_type=row["recruitment_type"],
+            source_kind=row["source_kind"],
+            source_url=row["source_url"],
+            source_table_id=row["source_table_id"],
+            source_record_id=row["source_record_id"],
+            jd_text=row["jd_text"],
+            prep_thread_id=latest_threads.get("prep"),
+            match_thread_id=latest_threads.get("match"),
+            application_ids=[item["application_id"] for item in applications],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
+
+    def link_opportunity_thread(self, user_id: str, opportunity_id: int, thread_id: str, mode: str) -> bool:
+        user_id = self._validated_user_id(user_id)
+        if mode not in {"prep", "match"} or not thread_id:
+            raise ValueError("Invalid opportunity thread")
+        with self._connect() as connection:
+            if not connection.execute("SELECT 1 FROM jobscout_opportunities WHERE id = ? AND user_id = ?", (opportunity_id, user_id)).fetchone():
+                return False
+            existing = connection.execute("SELECT opportunity_id FROM jobscout_opportunity_threads WHERE thread_id = ?", (thread_id,)).fetchone()
+            if existing and existing["opportunity_id"] != opportunity_id:
+                raise ValueError("Thread is already linked to another opportunity")
+            connection.execute(
+                "INSERT OR IGNORE INTO jobscout_opportunity_threads(thread_id, user_id, opportunity_id, mode, linked_at) VALUES (?, ?, ?, ?, ?)",
+                (thread_id, user_id, opportunity_id, mode, datetime.now(UTC).isoformat()),
+            )
+        return True
+
+    def link_opportunity_application(self, user_id: str, opportunity_id: int, application_id: int) -> bool:
+        user_id = self._validated_user_id(user_id)
+        with self._connect() as connection:
+            if not connection.execute("SELECT 1 FROM jobscout_opportunities WHERE id = ? AND user_id = ?", (opportunity_id, user_id)).fetchone():
+                return False
+            if not connection.execute("SELECT 1 FROM applications WHERE id = ? AND user_id = ?", (application_id, user_id)).fetchone():
+                return False
+            existing = connection.execute("SELECT opportunity_id FROM jobscout_opportunity_applications WHERE application_id = ?", (application_id,)).fetchone()
+            if existing and existing["opportunity_id"] != opportunity_id:
+                raise ValueError("Application is already linked to another opportunity")
+            connection.execute(
+                "INSERT OR IGNORE INTO jobscout_opportunity_applications(application_id, user_id, opportunity_id) VALUES (?, ?, ?)",
+                (application_id, user_id, opportunity_id),
+            )
+        return True
+
+    def delete_opportunity(self, user_id: str, opportunity_id: int) -> bool:
+        user_id = self._validated_user_id(user_id)
+        with self._connect() as connection:
+            result = connection.execute(
+                "DELETE FROM jobscout_opportunities WHERE id = ? AND user_id = ?",
+                (opportunity_id, user_id),
+            )
+        return result.rowcount > 0
 
     def list_stages(self, user_id: str) -> list[str]:
         user_id = self._validated_user_id(user_id)
@@ -237,6 +498,7 @@ class ApplicationTrackerStore:
             updates["stage_manual"] = 1
         if "applied_at" in updates and isinstance(updates["applied_at"], date):
             updates["applied_at"] = updates["applied_at"].isoformat()
+            updates["applied_at_evidence"] = ""
         updates["updated_at"] = datetime.now(UTC).isoformat()
         with self._connect() as connection:
             assignments = ", ".join(f"{key} = ?" for key in updates)
@@ -291,12 +553,15 @@ class ApplicationTrackerStore:
                     connection.execute(
                         """
                         UPDATE applications
-                        SET company = ?, role = ?, applied_at = ?, notes = ?, updated_at = ?
+                        SET company = ?, role = ?, applied_at = COALESCE(?, applied_at),
+                            applied_at_evidence = CASE WHEN ? IS NOT NULL THEN '' ELSE applied_at_evidence END,
+                            notes = ?, updated_at = ?
                         WHERE id = ? AND user_id = ?
                         """,
                         (
                             application.company,
                             application.role,
+                            application.applied_at.isoformat() if application.applied_at else None,
                             application.applied_at.isoformat() if application.applied_at else None,
                             application.notes,
                             now,
@@ -364,6 +629,10 @@ class ApplicationTrackerStore:
                 raw_status = primary_discovery.raw_status if primary_discovery else record.raw_status
                 confidence = primary_discovery.confidence if primary_discovery else record.confidence
                 evidence = primary_discovery.evidence if primary_discovery else record.evidence
+                website_applied_at = primary_discovery.applied_at if primary_discovery and primary_discovery.applied_at else (record.applied_at.isoformat() if record.applied_at else None)
+                website_date_evidence = primary_discovery.applied_at_evidence if primary_discovery and primary_discovery.applied_at else record.applied_at_evidence
+                applied_at = website_applied_at or row["applied_at"]
+                applied_at_evidence = website_date_evidence if website_applied_at else row["applied_at_evidence"]
                 changed_at = record.checked_at if status_changed or not had_baseline else self._parse_datetime(row["changed_at"])
                 if changed_at is None:
                     changed_at = record.checked_at
@@ -375,6 +644,8 @@ class ApplicationTrackerStore:
                 raw_status = row["raw_status"]
                 confidence = float(row["confidence"])
                 evidence = row["evidence"]
+                applied_at = row["applied_at"]
+                applied_at_evidence = row["applied_at_evidence"]
                 changed_at = self._parse_datetime(row["changed_at"]) or record.checked_at
                 detected_role = row["role"]
                 detected_role_confirmed = row["role_confirmed"]
@@ -406,6 +677,7 @@ class ApplicationTrackerStore:
                 """
                 UPDATE applications
                 SET status = ?, stage = ?, role = ?, role_confirmed = ?, raw_status = ?, confidence = ?, evidence = ?,
+                    applied_at = ?, applied_at_evidence = ?,
                     checked_at = ?, changed_at = ?, check_result = ?,
                     previous_status = ?, last_check_changed = ?, updated_at = ?
                 WHERE id = ? AND user_id = ?
@@ -418,6 +690,8 @@ class ApplicationTrackerStore:
                     raw_status,
                     confidence,
                     evidence,
+                    applied_at,
+                    applied_at_evidence,
                     record.checked_at.isoformat(),
                     changed_at.isoformat(),
                     record.check_result.value,
@@ -452,17 +726,18 @@ class ApplicationTrackerStore:
                         connection.execute(
                             """
                             INSERT INTO applications (
-                                user_id, company, role, url, applied_at, notes, status, stage,
+                                user_id, company, role, url, applied_at, applied_at_evidence, notes, status, stage,
                                 role_confirmed, raw_status, confidence, evidence, checked_at,
                                 changed_at, check_result, created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 user_id,
                                 row["company"],
                                 item.role,
                                 role_url,
-                                row["applied_at"],
+                                item.applied_at or None,
+                                item.applied_at_evidence if item.applied_at else "",
                                 row["notes"],
                                 item.status.value,
                                 item.status.value,
@@ -490,7 +765,7 @@ class ApplicationTrackerStore:
                     else:
                         child_id = existing["id"]
                         previous_child = connection.execute(
-                            "SELECT status, changed_at FROM applications WHERE id = ? AND user_id = ?",
+                            "SELECT status, changed_at, applied_at, applied_at_evidence FROM applications WHERE id = ? AND user_id = ?",
                             (existing["id"], user_id),
                         ).fetchone()
                         child_old_status = ApplicationStatus(previous_child["status"])
@@ -518,6 +793,7 @@ class ApplicationTrackerStore:
                             SET role = ?, role_confirmed = 1, status = ?,
                                 stage = CASE WHEN stage_manual = 0 THEN ? ELSE stage END,
                                 raw_status = ?, confidence = ?, evidence = ?, checked_at = ?,
+                                applied_at = ?, applied_at_evidence = ?,
                                 changed_at = ?, check_result = ?,
                                 previous_status = CASE WHEN ? THEN ? ELSE previous_status END,
                                 last_check_changed = ?, updated_at = ?
@@ -531,6 +807,8 @@ class ApplicationTrackerStore:
                                 item.confidence,
                                 item.evidence,
                                 record.checked_at.isoformat(),
+                                item.applied_at or previous_child["applied_at"],
+                                item.applied_at_evidence if item.applied_at else previous_child["applied_at_evidence"],
                                 child_changed_at.isoformat(),
                                 CheckResult.SUCCESS.value,
                                 int(child_changed),
@@ -580,6 +858,7 @@ class ApplicationTrackerStore:
             role=row["role"],
             url=row["url"],
             applied_at=date.fromisoformat(row["applied_at"]) if row["applied_at"] else None,
+            applied_at_evidence=row["applied_at_evidence"],
             notes=row["notes"],
             status=ApplicationStatus(row["status"]),
             stage=row["stage"] or row["status"],

@@ -9,18 +9,34 @@ logged-in listing page clearly associates multiple applied roles with their
 own statuses, it creates one progress-table row per role; repeated refreshes
 update those rows instead of creating duplicates. Once concrete roles are saved,
 the unidentified placeholder for that same page is removed. Each generated row reopens
-the same private source page and targets its saved role name. The table supports inline company, role,
-and application-date edits; user-managed stage names/order; per-row and batch
+the same private source page and targets its saved role name. Verbatim submission-date
+evidence is validated against the page before `applied_at` is saved, separately
+for each role; job publication and deadline dates are rejected. The table supports inline company and role
+edits; user-managed stage names/order; per-row and batch
 refresh; deletion; and UTF-8 CSV export. A manually selected stage is preserved
 on later refreshes, while automatic stages follow recognized status changes.
+The UI shows waiting time from `changed_at`, the first observed time of the
+current status, as a lower bound; manual stages have no inferred start time.
 Keep the URL private: it may identify a personal application, and do not paste
 passwords or session tokens into the URL.
 
-This module is the offline extraction core for JobScout's application-progress
-tracker. Phase 1 does not open websites, reuse cookies, write a database, or
-mount an HTTP route. It accepts page text captured elsewhere, asks a configured
-DeerFlow model for a typed status, verifies that the quoted status and evidence
-exist in the input, and writes the normalized public record as CSV.
+The same per-user SQLite store also keeps JobScout target roles in
+`jobscout_opportunities`. `jobscout_opportunity_threads` links each target to
+owned preparation or matching conversations, and
+`jobscout_opportunity_applications` links it to an owned tracker row. Each
+conversation or tracker row belongs to at most one target. Deleting a target
+only deletes these links; it does not delete the underlying conversation or
+application. Feishu-sourced targets use the table and record IDs as a stable
+identity and keep a bounded JD snapshot. `jobscout_match_candidates` stores
+up to ten verified report candidates per owned matching thread so report
+actions survive a page reload. None of these links writes to Feishu or turns a
+role recommendation into an application.
+
+The Phase 1 offline extraction path accepts page text captured elsewhere. It
+does not open websites, reuse cookies, write the online database, or mount an
+HTTP route. It asks a configured DeerFlow model for a typed status, verifies
+that quoted status and evidence exist in the input, and writes a normalized
+record as CSV.
 
 ## Input
 
@@ -146,7 +162,7 @@ environment-variable references in `config.yaml`.
 The output columns are, in order:
 
 ```text
-company, role, url, status, raw_status, confidence, evidence,
+company, role, url, status, raw_status, confidence, evidence, applied_at, applied_at_evidence,
 checked_at, changed_at, check_result
 ```
 

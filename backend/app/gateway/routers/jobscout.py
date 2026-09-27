@@ -1,10 +1,4 @@
-"""Authenticated JobScout product endpoints.
-
-This router deliberately exposes a narrow read-only operation instead of a
-generic Lark CLI proxy.  The browser supplies a Base URL; the Gateway resolves
-it with the current user's Feishu credentials and returns only bounded,
-job-relevant fields for the matching workflow.
-"""
+"""Authenticated JobScout Base, opportunity, and application endpoints."""
 
 import asyncio
 import csv
@@ -16,7 +10,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.application_tracker.agent.workflow import ApplicationTrackerAgent
 from app.application_tracker.csv_import import (
@@ -30,6 +24,8 @@ from app.application_tracker.store import (
     ImportSummary,
     StoredApplication,
     StoredCheck,
+    StoredMatchCandidate,
+    StoredOpportunity,
 )
 from app.application_tracker.update_service import (
     ApplicationNotFoundError,
@@ -37,11 +33,12 @@ from app.application_tracker.update_service import (
     TrackerUpdateService,
 )
 from app.gateway.authz import require_permission
-from app.gateway.deps import get_config
-from app.gateway.jobscout_base import JobScoutBaseError, load_job_base_context
+from app.gateway.deps import get_config, get_thread_store
+from app.gateway.jobscout_base import JobScoutBaseError, load_job_base_context, validate_base_url
 from deerflow.config.app_config import AppConfig
 from deerflow.integrations.lark_cli import get_lark_integration_status
 from deerflow.runtime.user_context import get_effective_user_id
+from deerflow.utils.thread_id import ThreadId
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +114,60 @@ class TrackerStagesUpdate(BaseModel):
     stages: list[str] = Field(min_length=1, max_length=40)
 
 
+class OpportunityCreate(BaseModel):
+    company: str = Field(min_length=1, max_length=200)
+    role: str = Field(min_length=1, max_length=300)
+    recruitment_type: str = Field(default="", max_length=20)
+    source_kind: str = Field(default="manual", pattern="^(manual|feishu|tracker)$")
+    source_url: str = Field(default="", max_length=2048)
+    source_table_id: str = Field(default="", max_length=131)
+    source_record_id: str = Field(default="", max_length=200)
+    jd_text: str = Field(default="", max_length=8000)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "OpportunityCreate":
+        if self.source_kind == "feishu":
+            if not self.source_url or not self.source_table_id or not self.source_record_id:
+                raise ValueError("Feishu source needs URL, table ID and record ID")
+            try:
+                self.source_url = validate_base_url(self.source_url)
+            except JobScoutBaseError as exc:
+                raise ValueError(str(exc)) from exc
+        elif self.source_url or self.source_table_id or self.source_record_id:
+            raise ValueError("Source identifiers are only allowed for Feishu opportunities")
+        return self
+
+
+class OpportunityThreadLink(BaseModel):
+    thread_id: ThreadId
+    mode: str = Field(pattern="^(prep|match)$")
+
+
+class OpportunityApplicationLink(BaseModel):
+    application_id: int = Field(gt=0)
+
+
+class MatchCandidateWrite(BaseModel):
+    record_id: str = Field(min_length=1, max_length=200)
+    company: str = Field(min_length=1, max_length=200)
+    role: str = Field(min_length=1, max_length=300)
+    jd_text: str = Field(default="", max_length=8000)
+
+
+class MatchCandidatesWrite(BaseModel):
+    source_url: str = Field(max_length=2048)
+    source_table_id: str = Field(min_length=1, max_length=131)
+    candidates: list[MatchCandidateWrite] = Field(max_length=10)
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: str) -> str:
+        try:
+            return validate_base_url(value)
+        except JobScoutBaseError as exc:
+            raise ValueError(str(exc)) from exc
+
+
 @router.post(
     "/base-context",
     response_model=JobBaseContextResponse,
@@ -174,6 +225,92 @@ async def load_base_context(
         has_more=context.has_more,
         context_truncated=context.context_truncated,
     )
+
+
+@router.get("/opportunities", response_model=list[StoredOpportunity])
+@require_permission("runs", "read")
+async def list_opportunities(request: Request) -> list[StoredOpportunity]:
+    del request
+    return await asyncio.to_thread(_tracker_store().list_opportunities, get_effective_user_id())
+
+
+@router.post("/opportunities", response_model=StoredOpportunity)
+@require_permission("runs", "create")
+async def create_opportunity(body: OpportunityCreate, request: Request) -> StoredOpportunity:
+    del request
+    try:
+        return await asyncio.to_thread(_tracker_store().create_opportunity, get_effective_user_id(), **body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/opportunities/{opportunity_id}", status_code=204)
+@require_permission("runs", "create")
+async def delete_opportunity(opportunity_id: int, request: Request) -> Response:
+    del request
+    deleted = await asyncio.to_thread(_tracker_store().delete_opportunity, get_effective_user_id(), opportunity_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Opportunity was not found")
+    return Response(status_code=204)
+
+
+@router.post("/opportunities/{opportunity_id}/threads", response_model=StoredOpportunity)
+@require_permission("runs", "create")
+async def link_opportunity_thread(opportunity_id: int, body: OpportunityThreadLink, request: Request) -> StoredOpportunity:
+    user_id = get_effective_user_id()
+    if await get_thread_store(request).get(body.thread_id, user_id=user_id) is None:
+        raise HTTPException(status_code=404, detail="Thread was not found")
+    store = _tracker_store()
+    try:
+        linked = await asyncio.to_thread(store.link_opportunity_thread, user_id, opportunity_id, body.thread_id, body.mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not linked:
+        raise HTTPException(status_code=404, detail="Opportunity was not found")
+    return await asyncio.to_thread(store.get_opportunity, user_id, opportunity_id)
+
+
+@router.post("/opportunities/{opportunity_id}/applications", response_model=StoredOpportunity)
+@require_permission("runs", "create")
+async def link_opportunity_application(opportunity_id: int, body: OpportunityApplicationLink, request: Request) -> StoredOpportunity:
+    del request
+    user_id = get_effective_user_id()
+    store = _tracker_store()
+    try:
+        linked = await asyncio.to_thread(store.link_opportunity_application, user_id, opportunity_id, body.application_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not linked:
+        raise HTTPException(status_code=404, detail="Opportunity or application was not found")
+    return await asyncio.to_thread(store.get_opportunity, user_id, opportunity_id)
+
+
+@router.get("/match-candidates/{thread_id}", response_model=list[StoredMatchCandidate])
+@require_permission("runs", "read")
+async def list_match_candidates(thread_id: ThreadId, request: Request) -> list[StoredMatchCandidate]:
+    user_id = get_effective_user_id()
+    if await get_thread_store(request).get(thread_id, user_id=user_id) is None:
+        raise HTTPException(status_code=404, detail="Thread was not found")
+    return await asyncio.to_thread(_tracker_store().list_match_candidates, user_id, thread_id)
+
+
+@router.put("/match-candidates/{thread_id}", response_model=list[StoredMatchCandidate])
+@require_permission("runs", "create")
+async def replace_match_candidates(thread_id: ThreadId, body: MatchCandidatesWrite, request: Request) -> list[StoredMatchCandidate]:
+    user_id = get_effective_user_id()
+    if await get_thread_store(request).get(thread_id, user_id=user_id) is None:
+        raise HTTPException(status_code=404, detail="Thread was not found")
+    try:
+        return await asyncio.to_thread(
+            _tracker_store().replace_match_candidates,
+            user_id,
+            thread_id,
+            source_url=body.source_url,
+            source_table_id=body.source_table_id,
+            candidates=[candidate.model_dump() for candidate in body.candidates],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get(
@@ -246,13 +383,14 @@ async def export_tracker_csv(request: Request) -> Response:
     rows = await asyncio.to_thread(_tracker_store().list_applications, get_effective_user_id())
     output = io.StringIO(newline="")
     writer = csv.writer(output)
-    writer.writerow(["公司", "岗位", "投递日期", "自定义环节", "识别状态", "页面原始状态", "查询链接", "识别结果", "最近检查时间", "置信度", "证据"])
+    writer.writerow(["公司", "岗位", "投递日期", "投递日期原文", "自定义环节", "识别状态", "页面原始状态", "查询链接", "识别结果", "最近检查时间", "置信度", "证据"])
     for row in rows:
         writer.writerow(
             [
                 row.company,
                 row.role,
                 row.applied_at or "",
+                row.applied_at_evidence,
                 row.stage,
                 row.status.value,
                 row.raw_status,
