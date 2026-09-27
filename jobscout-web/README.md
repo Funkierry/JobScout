@@ -40,7 +40,8 @@ source evidence, and check time to the tracker table.
 When one application-list page clearly pairs multiple applied roles with their
 own statuses, the tracker creates a separate row for each role. Refreshes update
 those rows using the role title as the identity, so the same listing does not
-create duplicates. It only records roles and statuses supported by visible page
+create duplicates. Once a concrete role is saved, the unidentified placeholder
+for that same page is removed. It only records roles and statuses supported by visible page
 text. The table supports individual or batch refresh, inline edits, custom
 stages, deletion, and CSV export. Data is stored in the Gateway's per-user
 SQLite database; this feature does not write to Feishu or another external

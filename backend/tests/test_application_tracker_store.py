@@ -7,6 +7,7 @@ from app.application_tracker.models import (
     ApplicationInput,
     ApplicationStatus,
     CheckResult,
+    DiscoveredApplication,
     StatusRecord,
 )
 from app.application_tracker.store import ApplicationTrackerStore
@@ -107,3 +108,73 @@ def test_store_does_not_expose_another_users_application(tmp_path: Path) -> None
 
     assert store.get_application("user-2", application_id) is None
     assert store.list_checks("user-2", application_id) == []
+
+
+def test_discovered_roles_replace_unidentified_placeholder(tmp_path: Path) -> None:
+    store = ApplicationTrackerStore(tmp_path / "tracker.db")
+    source_url = "https://jobs.example.com/my-applications"
+    placeholder = store.add_application("user-1", ApplicationInput(company="Example Co", role="待识别岗位", url=source_url))
+    unrelated = store.add_application("user-1", ApplicationInput(company="Another Co", role="待识别岗位", url="https://other.example.com/applications"))
+    checked_at = datetime(2026, 9, 27, 1, 0, tzinfo=UTC)
+    record = StatusRecord(
+        company="Example Co",
+        role="待识别岗位",
+        url=source_url,
+        status=ApplicationStatus.UNKNOWN,
+        confidence=0,
+        checked_at=checked_at,
+        changed_at=checked_at,
+        check_result=CheckResult.SUCCESS,
+        discovered_applications=[
+            DiscoveredApplication(
+                role="AI 产品经理",
+                role_evidence="岗位：AI 产品经理",
+                status=ApplicationStatus.RESUME_SCREENING,
+                raw_status="简历筛选中",
+                confidence=0.92,
+                evidence="岗位：AI 产品经理 当前状态：简历筛选中",
+            ),
+            DiscoveredApplication(
+                role="数据平台实习生",
+                role_evidence="岗位：数据平台实习生",
+                status=ApplicationStatus.APPLIED,
+                raw_status="已投递",
+                confidence=0.91,
+                evidence="岗位：数据平台实习生 当前状态：已投递",
+            ),
+        ],
+    )
+
+    returned = store.save_check("user-1", placeholder.id, record)
+
+    rows = store.list_applications("user-1")
+    assert store.get_application("user-1", placeholder.id) is None
+    assert {row.role for row in rows} == {"AI 产品经理", "数据平台实习生", "待识别岗位"}
+    assert {row.role: row.status for row in rows if row.company == "Example Co"} == {
+        "AI 产品经理": ApplicationStatus.RESUME_SCREENING,
+        "数据平台实习生": ApplicationStatus.APPLIED,
+    }
+    assert store.get_application("user-1", unrelated.id) is not None
+    assert returned.role in {"AI 产品经理", "数据平台实习生"}
+    assert len(store.list_checks("user-1", returned.id)) == 1
+
+
+def test_unidentified_placeholder_remains_without_discovered_role(tmp_path: Path) -> None:
+    store = ApplicationTrackerStore(tmp_path / "tracker.db")
+    placeholder = store.add_application("user-1", ApplicationInput(company="Example Co", role="待识别岗位", url="https://jobs.example.com/my-applications"))
+    checked_at = datetime(2026, 9, 27, 1, 0, tzinfo=UTC)
+    record = StatusRecord(
+        company=placeholder.company,
+        role=placeholder.role,
+        url=placeholder.url,
+        status=ApplicationStatus.UNKNOWN,
+        confidence=0,
+        checked_at=checked_at,
+        changed_at=checked_at,
+        check_result=CheckResult.SUCCESS,
+    )
+
+    returned = store.save_check("user-1", placeholder.id, record)
+
+    assert returned.id == placeholder.id
+    assert returned.role == "待识别岗位"

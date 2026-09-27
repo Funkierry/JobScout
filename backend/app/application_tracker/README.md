@@ -7,7 +7,8 @@ list/detail URL. After adding it, the browser workflow inspects the page and
 grounds detected role names and current statuses in visible page text. When a
 logged-in listing page clearly associates multiple applied roles with their
 own statuses, it creates one progress-table row per role; repeated refreshes
-update those rows instead of creating duplicates. Each generated row reopens
+update those rows instead of creating duplicates. Once concrete roles are saved,
+the unidentified placeholder for that same page is removed. Each generated row reopens
 the same private source page and targets its saved role name. The table supports inline company, role,
 and application-date edits; user-managed stage names/order; per-row and batch
 refresh; deletion; and UTF-8 CSV export. A manually selected stage is preserved
