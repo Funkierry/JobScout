@@ -5,6 +5,7 @@
 const GATEWAY_BASE = "http://localhost:8001";
 
 const TERMINAL_TRACKER_STATUSES = new Set(["Offer", "未通过", "流程终止"]);
+const STOPPED_TRACKER_STATUSES = new Set(["未通过", "流程终止"]);
 
 function isTerminalTrackerStatus(status) {
   return TERMINAL_TRACKER_STATUSES.has(status);
@@ -14,12 +15,15 @@ function trackerRowPresentation(row) {
   const terminal = Boolean(row?.terminal) || isTerminalTrackerStatus(row?.status);
   const needsReview = Boolean(row?.checked_at) && Number(row?.confidence) < 0.7;
   const changed = Boolean(row?.changed && row?.previous_status);
+  const stopped = STOPPED_TRACKER_STATUSES.has(row?.status) || STOPPED_TRACKER_STATUSES.has(row?.stage);
+  const unknown = needsReview || !row?.status || row.status === "未知" || (row.check_result && row.check_result !== "成功");
   return {
     terminal,
     canRefresh: !terminal,
     needsReview,
     changeText: changed ? `${row.previous_status} → ${row.status}` : "",
     tone: changed ? "changed" : (needsReview ? "review" : "normal"),
+    statusTone: stopped ? "stopped" : (unknown ? "unknown" : "active"),
   };
 }
 
@@ -489,6 +493,7 @@ function renderTrackerRows() {
   for (const row of trackerRows) {
     const presentation = trackerRowPresentation(row);
     const tableRow = trackerElement("tr", `tracker-row tracker-row-${presentation.tone}`);
+    tableRow.classList.add(`tracker-state-${presentation.statusTone}`);
     if (presentation.needsReview) tableRow.classList.add("tracker-row-review");
 
     const identityCell = trackerElement("td", "tracker-identity");
@@ -500,7 +505,7 @@ function renderTrackerRows() {
     const appliedCell = trackerElement("td", "tracker-date");
     appliedCell.append(makeTrackerEditor(row, "applied_at", "日期", "date"));
     const stageCell = trackerElement("td", "tracker-stage-cell");
-    const stageSelect = trackerElement("select", "tracker-stage-select");
+    const stageSelect = trackerElement("select", `tracker-stage-select tracker-stage-${presentation.statusTone}`);
     const availableStages = [...new Set([...trackerStages, row.stage || row.status])];
     for (const stage of availableStages) {
       const option = trackerElement("option", "", stage);
@@ -511,7 +516,7 @@ function renderTrackerRows() {
     stageSelect.addEventListener("change", () => patchTrackerRow(row.id, { stage: stageSelect.value }));
     stageCell.append(stageSelect);
     const statusCell = trackerElement("td", "tracker-status-cell");
-    statusCell.append(trackerElement("span", "tracker-status-pill", row.raw_status || row.status));
+    statusCell.append(trackerElement("span", `tracker-status-pill tracker-status-${presentation.statusTone}`, row.raw_status || row.status));
     if (row.checked_at) statusCell.append(trackerElement("small", presentation.needsReview ? "tracker-review-label" : "tracker-raw", `${Math.round(Number(row.confidence) * 100)}%${presentation.needsReview ? " · 需确认" : " 置信度"}`));
     if (row.evidence) {
       const evidence = trackerElement("small", "tracker-raw", row.evidence);

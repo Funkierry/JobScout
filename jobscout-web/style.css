@@ -946,7 +946,9 @@ textarea:focus {
 .tracker-table tbody tr { transition: background .15s ease; }
 .tracker-table tbody tr:hover { background: #fafaf8; }
 .tracker-table .tracker-row-changed { background: #f1f7ff; box-shadow: inset 3px 0 0 var(--blue); }
-.tracker-table .tracker-row-review { background: #fff8e7; box-shadow: inset 3px 0 0 #d39224; }
+.tracker-table .tracker-state-active { background: #f5fbf7; box-shadow: inset 3px 0 0 var(--success); }
+.tracker-table .tracker-state-stopped { background: #fff5f4; box-shadow: inset 3px 0 0 var(--error); }
+.tracker-table .tracker-row-review:not(.tracker-state-stopped) { background: #fff8e7; box-shadow: inset 3px 0 0 #d39224; }
 
 .tracker-identity > * { display: block; }
 .tracker-company { max-width: 240px; overflow: hidden; color: var(--ink); font-size: 12.5px; font-weight: 680; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
@@ -962,6 +964,12 @@ textarea:focus {
 
 .tracker-status-cell > * { display: block; width: max-content; max-width: 190px; }
 .tracker-status-pill { padding: 3px 8px; color: #1b438f; border-radius: 999px; background: var(--blue-soft); font-size: 10.5px; font-weight: 680; }
+.tracker-status-active { color: #12643d; background: #e3f5e9; }
+.tracker-status-stopped { color: #a92c29; background: #fde7e5; }
+.tracker-status-unknown { color: #596576; background: #edf1f4; }
+.tracker-stage-active { color: #12643d; border-color: #b5dec3; background: #f1fbf4; }
+.tracker-stage-stopped { color: #a92c29; border-color: #ebbcba; background: #fff1f0; }
+.tracker-stage-unknown { color: #596576; border-color: var(--line-strong); }
 .tracker-change { margin-top: 4px; color: var(--blue); font-weight: 620; }
 .tracker-raw { margin-top: 4px; overflow: hidden; color: var(--muted); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
 

@@ -47,6 +47,9 @@ stages, deletion, and CSV export. Data is stored in the Gateway's per-user
 SQLite database; this feature does not write to Feishu or another external
 spreadsheet.
 
+The table marks terminated or rejected applications in red, normal progress
+and offers in green, and unknown or review-needed rows in a neutral color.
+
 On Windows, the repository root includes `scripts/run-jobscout-gateway-local.cmd`
 and `scripts/run-jobscout-web-local.cmd` for starting the two local services.
 

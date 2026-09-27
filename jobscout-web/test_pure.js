@@ -33,6 +33,11 @@ const changedTrackerRow = trackerRowPresentation({
 assert.strictEqual(changedTrackerRow.changeText, "一面 → 二面");
 assert.strictEqual(changedTrackerRow.needsReview, false);
 assert.strictEqual(changedTrackerRow.canRefresh, true);
+assert.strictEqual(changedTrackerRow.statusTone, "active");
+
+assert.strictEqual(trackerRowPresentation({ status: "流程终止", checked_at: "2026-09-27T04:00:00Z", confidence: 0.95 }).statusTone, "stopped");
+assert.strictEqual(trackerRowPresentation({ status: "未通过", checked_at: "2026-09-27T04:00:00Z", confidence: 0.95 }).statusTone, "stopped");
+assert.strictEqual(trackerRowPresentation({ status: "Offer", checked_at: "2026-09-27T04:00:00Z", confidence: 0.95 }).statusTone, "active");
 
 const uncertainTrackerRow = trackerRowPresentation({
   status: "未知",
@@ -44,6 +49,7 @@ const uncertainTrackerRow = trackerRowPresentation({
 });
 assert.strictEqual(uncertainTrackerRow.needsReview, true);
 assert.strictEqual(uncertainTrackerRow.tone, "review");
+assert.strictEqual(uncertainTrackerRow.statusTone, "unknown");
 
 const firstSseChunk = parseSseFrames('data: {"type":"batch_started","total":2}\n\ndata: {"type":"row_');
 assert.deepStrictEqual(firstSseChunk.events, [{ type: "batch_started", total: 2 }]);
