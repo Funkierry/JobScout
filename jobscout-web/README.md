@@ -76,7 +76,12 @@ spreadsheet.
 The tags above the tracker table filter by the row's current custom stage. Each
 tag shows its record count; **全部** restores the full list. The selected tag
 stays active while rows refresh, and the displayed count updates with the data.
-On narrow screens, tracker rows become cards so fields and actions remain readable.
+Desktop tracking opens in **紧凑显示**: the add form is folded away when records
+exist, tags stay in a single scrollable row, and the table scrolls below a fixed
+header. Click a row's status pill for its full source excerpt, confidence, and
+official-page link, or turn off **紧凑显示** for the expanded table. The add form
+remains available through **添加记录**. On narrow screens, tracker rows become
+cards so fields and actions remain readable.
 
 The table marks terminated or rejected applications in red, normal progress
 and offers in green, and unknown or review-needed rows in a neutral color.

@@ -205,6 +205,8 @@ function setupAuthForm() {
     lastBaseContext = null;
     savedMatchCandidates = { threadId: null, candidates: [] };
     trackerRows = [];
+    trackerAddFormInitialized = false;
+    setTrackerAddFormOpen(true);
     threadListCache = [];
     hasShownWelcome = false;
     setMode("prep", { restoreThread: false });
@@ -241,6 +243,9 @@ let trackerRows = [];
 let trackerBusy = false;
 let trackerStages = [];
 let trackerStageFilter = null;
+let trackerAddFormOpen = true;
+let trackerAddFormInitialized = false;
+let trackerCompact = true;
 let opportunities = [];
 let selectedOpportunityId = null;
 let pendingOpportunityAction = null;
@@ -389,6 +394,7 @@ function setupOpportunities() {
     loadTrackerApplications();
     const opportunity = selectedOpportunity();
     if (opportunity && !opportunity.application_ids.length) {
+      setTrackerAddFormOpen(true);
       $("trackerAddForm").elements.company.value = opportunity.company;
       $("trackerAddForm").elements.url.focus();
     }
@@ -706,10 +712,40 @@ function showTrackerResult(row, message = "刷新完成") {
   setText("trackerResultApplied", row.applied_at ? `${row.applied_at}${row.applied_at_evidence ? "" : "（历史日期，官网未核实）"}` : "官网未识别");
   setText("trackerResultWait", trackerStageWaitText(row));
   setText("trackerResultRaw", row.raw_status);
+  setText("trackerResultConfidence", row.checked_at ? `${Math.round(Number(row.confidence) * 100)}%${Number(row.confidence) < 0.7 ? " · 需确认" : ""}` : "尚未检查");
   setText("trackerResultEvidence", row.evidence);
+  const source = $("trackerResultSource");
+  if (source) source.href = row.url;
   setText("trackerResultChecked", formatTrackerDate(row.checked_at));
   if (typeof dialog.showModal === "function") dialog.showModal();
   else window.alert(`${row.company}｜岗位：${row.role}｜进度：${row.stage || row.status}\n${$("trackerResultMessage").textContent}`);
+}
+
+function showTrackerDetails(row) {
+  showTrackerResult(row);
+  $("trackerResultTitle").textContent = "官网识别详情";
+  $("trackerResultMessage").textContent = Number(row.confidence) < 0.7 && row.checked_at
+    ? "本次识别置信度较低，请核对官网页面。下方保留最近一次检查的原文。"
+    : "这里显示最近一次检查保存的页面原文和识别结果；请以官网页面为准。";
+}
+
+function setTrackerAddFormOpen(open) {
+  trackerAddFormOpen = Boolean(open);
+  $("trackerAddForm")?.classList.toggle("hidden", !trackerAddFormOpen);
+  const button = $("trackerAddToggle");
+  if (button) {
+    button.textContent = trackerAddFormOpen ? "收起添加" : "＋ 添加记录";
+    button.setAttribute("aria-expanded", String(trackerAddFormOpen));
+  }
+}
+
+function setTrackerCompact(compact) {
+  trackerCompact = Boolean(compact);
+  const panel = $("trackerPanel");
+  if (panel) panel.dataset.density = trackerCompact ? "compact" : "comfortable";
+  const button = $("trackerDensityBtn");
+  if (button) button.setAttribute("aria-pressed", String(trackerCompact));
+  try { localStorage.setItem("jobscoutTrackerDensity", trackerCompact ? "compact" : "comfortable"); } catch (_) { /* optional preference */ }
 }
 
 function showTrackerBatchResult(rows) {
@@ -809,7 +845,13 @@ function renderTrackerRows() {
     waitCell.title = "未从官网获取阶段开始日期时，按系统首次识别该阶段的时间计算等待下限。";
     const statusCell = trackerElement("td", "tracker-status-cell");
     statusCell.dataset.label = "页面识别";
-    statusCell.append(trackerElement("span", `tracker-status-pill tracker-status-${presentation.statusTone}`, row.raw_status || row.status));
+    const statusButton = trackerElement("button", `tracker-status-pill tracker-status-${presentation.statusTone}`, row.raw_status || row.status);
+    statusButton.type = "button";
+    statusButton.classList.add("tracker-status-detail");
+    statusButton.title = presentation.needsReview ? "识别需确认，查看页面依据" : "查看页面识别依据";
+    statusButton.setAttribute("aria-label", `查看 ${row.company} ${row.role} 的页面识别依据${presentation.needsReview ? "，需确认" : ""}`);
+    statusButton.addEventListener("click", () => showTrackerDetails(row));
+    statusCell.append(statusButton);
     if (row.checked_at) statusCell.append(trackerElement("small", presentation.needsReview ? "tracker-review-label" : "tracker-raw", `${Math.round(Number(row.confidence) * 100)}%${presentation.needsReview ? " · 需确认" : " 置信度"}`));
     if (row.evidence) {
       const evidence = trackerElement("small", "tracker-raw", row.evidence);
@@ -887,6 +929,10 @@ async function loadTrackerApplications() {
   try {
     const rows = await apiJson("/api/jobscout/tracker/applications");
     trackerRows = Array.isArray(rows) ? rows : [];
+    if (!trackerAddFormInitialized) {
+      setTrackerAddFormOpen(trackerRows.length === 0);
+      trackerAddFormInitialized = true;
+    }
     renderTrackerRows();
     if ($("chatStatus")) $("chatStatus").textContent = `${trackerRows.length} 条投递记录`;
   } catch (error) {
@@ -1026,6 +1072,14 @@ async function refreshAllTrackerRows() {
 }
 
 function setupTracker() {
+  try { trackerCompact = localStorage.getItem("jobscoutTrackerDensity") !== "comfortable"; } catch (_) { trackerCompact = true; }
+  setTrackerCompact(trackerCompact);
+  setTrackerAddFormOpen(true);
+  $("trackerDensityBtn")?.addEventListener("click", () => setTrackerCompact(!trackerCompact));
+  $("trackerAddToggle")?.addEventListener("click", () => {
+    setTrackerAddFormOpen(!trackerAddFormOpen);
+    if (trackerAddFormOpen) $("trackerAddForm")?.elements.company.focus();
+  });
   $("trackerClearFilter")?.addEventListener("click", () => { trackerStageFilter = null; renderTrackerRows(); });
   $("trackerRefreshAllBtn")?.addEventListener("click", refreshAllTrackerRows);
   $("trackerStagesBtn")?.addEventListener("click", () => {
@@ -1044,6 +1098,7 @@ function setupTracker() {
       const row = await apiJson("/api/jobscout/tracker/applications", { method: "POST", json: { company: data.get("company"), url: data.get("url") } });
       trackerRows = [...trackerRows.filter((item) => item.id !== row.id), row]; renderTrackerRows(); form.reset();
       const refreshed = await refreshTrackerRow(row.id);
+      setTrackerAddFormOpen(false);
       const opportunity = selectedOpportunity();
       if (opportunity && refreshed
           && refreshed.company.trim() === opportunity.company.trim()
