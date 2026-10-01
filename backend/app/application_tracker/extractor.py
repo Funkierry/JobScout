@@ -54,7 +54,7 @@ raw_status 必须是页面中的原始状态短语。evidence 必须是页面中
 
 
 class StructuredStatusModel(Protocol):
-    def invoke(self, messages: list[SystemMessage | HumanMessage]) -> StatusExtraction | dict[str, Any]: ...
+    def invoke(self, messages: list[SystemMessage | HumanMessage], **kwargs: Any) -> StatusExtraction | dict[str, Any]: ...
 
 
 def _ground_excerpt(source: str, candidate: str) -> str | None:
@@ -103,6 +103,7 @@ class StatusExtractor:
         *,
         previous: StatusRecord | None = None,
         checked_at: datetime | None = None,
+        callbacks: list[Any] | None = None,
     ) -> StatusRecord:
         checked_at = checked_at or datetime.now(UTC)
         if checked_at.tzinfo is None or checked_at.utcoffset() is None:
@@ -118,7 +119,7 @@ class StatusExtractor:
             HumanMessage(content=self._user_prompt(application, bounded_source)),
         ]
         try:
-            raw_result = self._model.invoke(messages)
+            raw_result = self._model.invoke(messages, config={"callbacks": callbacks}) if callbacks else self._model.invoke(messages)
             extraction = raw_result if isinstance(raw_result, StatusExtraction) else StatusExtraction.model_validate(raw_result)
             raw_status = _ground_excerpt(bounded_source, extraction.raw_status)
             evidence = _ground_excerpt(bounded_source, extraction.evidence)

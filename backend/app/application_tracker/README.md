@@ -187,7 +187,19 @@ command itself calls the configured LLM.
 
 Only a bounded prefix of `page_text` is sent to the configured model. The
 extractor labels both metadata and page content as untrusted and never logs the
-page text. The browser and agent never log cookies or page text, and screenshots
-are not written to disk. Page observations and fallback screenshots are sent to
+page text. The production browser and agent never log cookies or page text;
+their screenshots are not written to disk. Page observations and fallback screenshots are sent to
 the configured model, so use a provider consistent with the privacy policy for
 your application data. Database persistence and UI updates start in Phase 4.
+
+## Stage 0 private baseline
+
+The optional `scripts/application_tracker_snapshot.py` captures the existing
+persistent-profile page text, bounded XHR/fetch JSON, final URL, and a viewport
+screenshot under the gitignored `local_eval/tracker_snapshots/` directory. It
+does not invoke a model. `scripts/application_tracker_annotate.py` creates a
+private JSONL label set; `scripts/application_tracker_baseline.py` replays that
+set through the current structured extractor only when `--allow-model-cost` is
+explicitly supplied. The latter is an offline extraction baseline, not a
+browser-to-result end-to-end score. Collection steps, privacy limits, metric
+definitions, and pending real results are in `docs/jobscout/metrics.md`.

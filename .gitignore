@@ -48,6 +48,7 @@ extensions_config.json
 coverage.xml
 coverage/
 .deer-flow/
+/local_eval/
 .claude/
 skills/custom/*
 logs/

@@ -696,15 +696,27 @@ function showTrackerError(message = "") {
   target.classList.toggle("hidden", !message);
 }
 
+function trackerIsSiteHomepage(url) {
+  try {
+    const parsed = new URL(url);
+    return (parsed.pathname === "/" || !parsed.pathname) && !parsed.search && !parsed.hash;
+  } catch (_) {
+    return false;
+  }
+}
+
 function showTrackerResult(row, message = "刷新完成") {
   const dialog = $("trackerResultDialog");
   if (!dialog || !row) return;
   const setText = (id, value) => { const node = $(id); if (node) node.textContent = value || "—"; };
   const successful = row.check_result === "成功";
   const unknown = row.status === "未知";
+  const unknownMessage = trackerIsSiteHomepage(row.url)
+    ? "你添加的是招聘官网首页，页面没有可确认的个人投递记录。请在官网进入“我的投递 / 申请记录”，复制该页面链接后重新添加。"
+    : "页面已读取，但没有找到可确认的岗位或进度；请检查是否需要登录，或链接是否指向申请详情页。";
   $("trackerResultTitle").textContent = successful ? "刷新完成" : "刷新未完成";
   $("trackerResultMessage").textContent = successful
-    ? (unknown ? "页面已读取，但没有找到可确认的岗位或进度；请检查是否需要登录，或链接是否指向申请详情页。" : message)
+    ? (unknown ? unknownMessage : message)
     : `${message}。请检查页面是否要求登录，再重试。`;
   setText("trackerResultCompany", row.company);
   setText("trackerResultRole", row.role);
@@ -2142,6 +2154,7 @@ if (typeof module !== "undefined") {
     withSkillPrefix,
     isTerminalTrackerStatus,
     trackerRowPresentation,
+    trackerIsSiteHomepage,
     trackerStageWaitText,
     trackerStageLabel,
     trackerStageFilterOptions,

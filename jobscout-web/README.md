@@ -61,6 +61,11 @@ source evidence, and check time to the tracker table. The application date is
 read from the official page when its quoted submission evidence supports it;
 there is no date field to fill in the add form.
 
+A portal homepage with a visible **登录 / 注册** entry can also trigger the
+manual-login window. If the homepage still does not reveal a personal
+application, use the URL of **我的投递 / 申请记录** or a specific application detail
+page instead of the site's root URL.
+
 When one application-list page clearly pairs multiple applied roles with their
 own statuses, the tracker creates a separate row for each role. Refreshes update
 those rows using the role title as the identity, so the same listing does not

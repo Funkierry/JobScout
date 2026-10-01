@@ -17,6 +17,7 @@ const {
   withSkillPrefix,
   isTerminalTrackerStatus,
   trackerRowPresentation,
+  trackerIsSiteHomepage,
   trackerStageWaitText,
   trackerStageLabel,
   trackerStageFilterOptions,
@@ -26,6 +27,10 @@ const {
 
 // ---- application tracker helpers ----
 assert.strictEqual(isTerminalTrackerStatus("Offer"), true);
+assert.strictEqual(trackerIsSiteHomepage("https://careers.example.com/"), true);
+assert.strictEqual(trackerIsSiteHomepage("https://careers.example.com/applications"), false);
+assert.strictEqual(trackerIsSiteHomepage("https://careers.example.com/?tab=applications"), false);
+assert.strictEqual(trackerIsSiteHomepage("not-a-url"), false);
 assert.strictEqual(isTerminalTrackerStatus("未通过"), true);
 assert.strictEqual(isTerminalTrackerStatus("流程终止"), true);
 assert.strictEqual(isTerminalTrackerStatus("二面"), false);

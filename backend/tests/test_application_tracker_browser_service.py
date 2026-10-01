@@ -306,6 +306,33 @@ async def test_agent_browser_keeps_the_authenticated_headed_context(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_agent_browser_opens_visible_login_from_portal_homepage(tmp_path: Path) -> None:
+    initial = FakePage("https://campus.example.com/", text="校园招聘\n登录 / 注册")
+    headed = FakePage("https://campus.example.com/", text="校园招聘\n登录 / 注册")
+    launcher = FakeLauncher([FakeContext(initial), FakeContext(headed)])
+
+    async def complete_login(_: float) -> None:
+        headed.text = "我的投递\n当前进度：笔试"
+
+    factory = PersistentAgentBrowserFactory(launcher)
+    browser = factory.create(
+        url="https://campus.example.com/",
+        user_id="local-user",
+        config=_config(tmp_path, login_poll_interval_seconds=0.01, login_timeout_seconds=1),
+    )
+    browser._sleep = complete_login
+    try:
+        opened = await browser.open_page()
+        result = await browser.request_human_login()
+    finally:
+        await browser.close()
+
+    assert opened.check_result is CheckResult.LOGIN_REQUIRED
+    assert result.check_result is CheckResult.SUCCESS
+    assert [headless for _, headless, _ in launcher.calls] == [True, False]
+
+
+@pytest.mark.asyncio
 async def test_login_timeout_returns_login_required_and_skips_reopen(tmp_path: Path) -> None:
     initial = FakePage("https://accounts.example.com/login", has_password=True)
     headed = FakePage("https://accounts.example.com/login", has_password=True)

@@ -11,10 +11,6 @@ _LOGIN_URL_PATTERN = re.compile(
     r"(?:^|[/?.&=_-])(login|log-in|signin|sign-in|passport|sso|auth|oauth|authenticate|authorize)(?:$|[/?.&#=_-])",
     re.IGNORECASE,
 )
-_PRIVATE_APPLICATION_URL_PATTERN = re.compile(
-    r"(?:^|[/?.&=_-])(application|applications|application-status|candidate|my-applications|progress)(?:$|[/?.&#=_-])",
-    re.IGNORECASE,
-)
 _LOGIN_CTA_TEXT = frozenset(
     {
         "login",
@@ -27,6 +23,10 @@ _LOGIN_CTA_TEXT = frozenset(
         "请先登录",
         "登录/注册",
         "注册/登录",
+        "登录 / 注册",
+        "注册 / 登录",
+        "登录或注册",
+        "点击登录",
     }
 )
 _CHALLENGE_SELECTOR = ", ".join(
@@ -78,7 +78,9 @@ class LoginDetector:
             return LoginInspection(LoginState.LOGIN_REQUIRED, "login_url")
         if await page.locator('input[type="password"]').count() > 0:
             return LoginInspection(LoginState.LOGIN_REQUIRED, "password_input")
-        if _PRIVATE_APPLICATION_URL_PATTERN.search(page.url) and self._has_login_cta(body_text):
+        # A user may register a portal homepage that exposes the login entry
+        # before the private application-list route is available.
+        if self._has_login_cta(body_text):
             return LoginInspection(LoginState.LOGIN_REQUIRED, "login_cta")
         return LoginInspection(LoginState.AUTHENTICATED, "no_login_signal")
 

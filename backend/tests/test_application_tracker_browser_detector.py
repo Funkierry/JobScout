@@ -71,6 +71,14 @@ async def test_login_detector_recognizes_login_cta_on_application_page() -> None
 
 
 @pytest.mark.asyncio
+async def test_login_detector_recognizes_login_cta_on_portal_homepage() -> None:
+    inspection = await LoginDetector().inspect(FakePage("https://campus.example.com/", text="校园招聘\n登录 / 注册\n职位搜索"))
+
+    assert inspection.state is LoginState.LOGIN_REQUIRED
+    assert inspection.reason == "login_cta"
+
+
+@pytest.mark.asyncio
 async def test_login_detector_does_not_treat_login_history_as_a_login_cta() -> None:
     inspection = await LoginDetector().inspect(
         FakePage(
