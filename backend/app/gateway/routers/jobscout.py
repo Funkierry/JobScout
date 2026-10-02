@@ -35,6 +35,7 @@ from app.application_tracker.update_service import (
 from app.gateway.authz import require_permission
 from app.gateway.deps import get_config, get_thread_store
 from app.gateway.jobscout_base import JobScoutBaseError, load_job_base_context, validate_base_url
+from app.jobscout.inputs import BASE_SNAPSHOTS
 from deerflow.config.app_config import AppConfig
 from deerflow.integrations.lark_cli import get_lark_integration_status
 from deerflow.runtime.user_context import get_effective_user_id
@@ -68,12 +69,14 @@ class TrackerRefreshResponse(BaseModel):
 
 
 class JobBaseContextRequest(BaseModel):
+    thread_id: ThreadId | None = None
     url: str = Field(..., min_length=1, max_length=2048, description="Feishu/Lark Base or Base wiki URL")
     table_id: str | None = Field(default=None, min_length=5, max_length=131, description="Optional table id override")
     limit: int = Field(default=200, ge=1, le=200, description="Maximum number of records to read")
 
 
 class JobBaseContextResponse(BaseModel):
+    context_ref: str | None = None
     table_id: str
     table_name: str
     view_id: str | None
@@ -179,8 +182,9 @@ async def load_base_context(
     request: Request,
     config: AppConfig = Depends(get_config),
 ) -> JobBaseContextResponse:
-    del request  # Required by the auth decorator.
     user_id = get_effective_user_id()
+    if body.thread_id and await get_thread_store(request).get(body.thread_id, user_id=user_id) is None:
+        raise HTTPException(status_code=404, detail="Thread was not found")
 
     try:
         status = await asyncio.to_thread(
@@ -216,6 +220,7 @@ async def load_base_context(
         raise HTTPException(status_code=503, detail="读取飞书岗位表失败，请稍后重试。") from exc
 
     return JobBaseContextResponse(
+        context_ref=BASE_SNAPSHOTS.put(user_id, body.thread_id, context.records, has_more=context.has_more, context_truncated=context.context_truncated) if body.thread_id else None,
         table_id=context.table_id,
         table_name=context.table_name,
         view_id=context.view_id,

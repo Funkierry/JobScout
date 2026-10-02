@@ -1465,7 +1465,7 @@ function setupComposer() {
         $("chatStatus").textContent = "正在安全读取飞书岗位表...";
         const baseContext = await apiJson("/api/jobscout/base-context", {
           method: "POST",
-          json: { url: baseUrl, limit: 200 },
+          json: { url: baseUrl, limit: 200, thread_id: activeThreadId },
         });
         if (!baseContext?.record_count) {
           throw new Error("岗位表中没有可用于匹配的记录,请检查链接或数据表。");
@@ -1539,7 +1539,7 @@ async function streamRunToText(threadId, messageText, filesMeta, onProgress) {
       config: {
         recursion_limit: 1000,
         configurable: { reasoning_effort: "medium", subagent_enabled: true },
-        context: jobScoutRunContext(runMode),
+        context: jobScoutRunContext(runMode, lastBaseContext?.thread_id === threadId ? lastBaseContext?.context_ref : null),
       },
       stream_mode: ["values"],
     },
@@ -1581,8 +1581,12 @@ async function streamRunToText(threadId, messageText, filesMeta, onProgress) {
   return extractLastVisibleAiText(lastMessages, runMode);
 }
 
-function jobScoutRunContext(mode) {
-  return { jobscout_mode: mode === "match" ? "base_match" : "interview_prep" };
+function jobScoutRunContext(mode, contextRef = null) {
+  return {
+    jobscout_mode: mode === "match" ? "base_match" : "interview_prep",
+    jobscout_evidence_version: 2,
+    ...(mode === "match" && typeof contextRef === "string" && contextRef ? { jobscout_base_context_ref: contextRef } : {}),
+  };
 }
 
 /** Canonical display text for both values streams and persisted history.
@@ -1593,15 +1597,13 @@ function guardedMessageText(message, mode = "prep") {
   if (message?.type === "tool" && message.name !== "ask_clarification") return "";
   if (message?.tool_calls?.length) return "";
   const text = contentToText(message?.content).trim();
-  if (mode === "match" || !text) return text;
-  const stamp = message?.additional_kwargs?.jobscout_links;
-  if (stamp?.version === 1 && stamp.mode === "interview_prep" &&
+  if (!text || message?.type === "tool" && message.name === "ask_clarification") return text;
+  const stamp = message?.additional_kwargs?.jobscout_evidence;
+  if (stamp?.version === 2 && stamp.mode === (mode === "match" ? "base_match" : "interview_prep") &&
       typeof stamp.run_id === "string" && stamp.run_id &&
+      Number.isInteger(stamp.accepted_count) && stamp.accepted_count >= 0 &&
       Number.isInteger(stamp.removed_count) && stamp.removed_count >= 0) return text;
-  if (looksLikeReport(text) || /https?:|www\.|\]\s*[([]|<a\b/i.test(text)) {
-    return "这份内容尚无本次运行的来源校验记录，暂不展示或导出。旧报告需要重新生成；新报告请先启用 JobScout 来源校验中间件。";
-  }
-  return text;
+  return "这份内容尚无本次运行的结构化证据与来源校验记录，暂不展示或导出。旧报告需要重新生成；新报告请先启用 JobScout 来源校验中间件。";
 }
 
 function contentToText(content) {
@@ -2064,12 +2066,28 @@ function escapeHtml(s) {
 }
 
 function inlineMd(s) {
-  let out = escapeHtml(s);
+  // Code-rendered evidence escapes Markdown punctuation. Preserve those
+  // characters as text before interpreting actual formatting and links.
+  let out = escapeHtml(s)
+    .replace(/\\([\\`*_{}\[\]()#+.!|])/g, (_, char) => "&#" + char.charCodeAt(0) + ";")
+    .replace(/\\(&lt;|&gt;)/g, "$1");
   out = out.replace(/\[([^\]]+)\]\(&lt;(https?:\/\/[^\s]+?)&gt;\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
   return out;
+}
+
+function markdownTableCells(row) {
+  const cells = [""];
+  const text = row.replace(/^\||\|$/g, "");
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "\\" && i + 1 < text.length) {
+      cells[cells.length - 1] += text[i] + text[++i];
+    } else if (text[i] === "|") cells.push("");
+    else cells[cells.length - 1] += text[i];
+  }
+  return cells.map(cell => cell.trim());
 }
 
 function markdownToHtml(md) {
@@ -2114,10 +2132,10 @@ function markdownToHtml(md) {
         i++;
       }
       if (rows.length >= 2 && /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$/.test(rows[1])) {
-        const headCells = rows[0].replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+        const headCells = markdownTableCells(rows[0]);
         html += "<table><thead><tr>" + headCells.map((c) => `<th>${inlineMd(c)}</th>`).join("") + "</tr></thead><tbody>";
         for (let r = 2; r < rows.length; r++) {
-          const cells = rows[r].replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+          const cells = markdownTableCells(rows[r]);
           html += "<tr>" + cells.map((c) => `<td>${inlineMd(c)}</td>`).join("") + "</tr>";
         }
         html += "</tbody></table>";

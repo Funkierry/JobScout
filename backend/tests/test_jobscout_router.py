@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import HTTPException
@@ -7,6 +8,34 @@ from app.gateway.jobscout_base import JobBaseContext, JobScoutBaseError
 from app.gateway.routers import jobscout
 
 pytestmark = pytest.mark.asyncio
+
+
+async def test_base_snapshot_requires_thread_ownership_before_cli(monkeypatch):
+    monkeypatch.setattr(jobscout, "get_effective_user_id", lambda: "owner")
+    store = SimpleNamespace(get=AsyncMock(return_value=None))
+    monkeypatch.setattr(jobscout, "get_thread_store", lambda _: store)
+    cli = Mock()
+    monkeypatch.setattr(jobscout, "get_lark_integration_status", cli)
+    with pytest.raises(HTTPException) as error:
+        await jobscout.load_base_context.__wrapped__(body=jobscout.JobBaseContextRequest(url="https://example.feishu.cn/base/token", thread_id="test-thread"), request=None, config=SimpleNamespace())
+    assert error.value.status_code == 404
+    cli.assert_not_called()
+    store.get.assert_awaited_once_with("test-thread", user_id="owner")
+
+
+async def test_base_snapshot_contains_server_records_and_is_owner_bound(monkeypatch):
+    from app.jobscout.inputs import BaseSnapshotStore
+
+    snapshots = BaseSnapshotStore()
+    monkeypatch.setattr(jobscout, "BASE_SNAPSHOTS", snapshots)
+    monkeypatch.setattr(jobscout, "get_effective_user_id", lambda: "owner")
+    monkeypatch.setattr(jobscout, "get_thread_store", lambda _: SimpleNamespace(get=AsyncMock(return_value=object())))
+    monkeypatch.setattr(jobscout, "get_lark_integration_status", lambda *_args, **_kwargs: _status())
+    records = [{"record_id": "server-record", "公司": "合成"}]
+    monkeypatch.setattr(jobscout, "load_job_base_context", lambda **_: JobBaseContext(table_id="tblJobs", table_name="jobs", view_id=None, fields=[], records=records, record_count=1, has_more=False, context_truncated=False))
+    result = await jobscout.load_base_context.__wrapped__(body=jobscout.JobBaseContextRequest(url="https://example.feishu.cn/base/token", thread_id="test-thread"), request=None, config=SimpleNamespace())
+    assert snapshots.get(result.context_ref, "owner", "test-thread") == records
+    assert snapshots.get(result.context_ref, "other", "test-thread") is None
 
 
 def _status(*, auth: str = "authenticated") -> SimpleNamespace:

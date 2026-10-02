@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -18,6 +17,8 @@ from app.application_tracker.models import (
     StatusRecord,
 )
 from app.application_tracker.status_semantics import normalize_generic_active_status
+from app.evidence.grounding import ground_excerpt as _ground_excerpt
+from app.evidence.grounding import is_evidence_grounded as is_evidence_grounded  # Compatibility export.
 
 logger = logging.getLogger(__name__)
 
@@ -55,31 +56,6 @@ raw_status 必须是页面中的原始状态短语。evidence 必须是页面中
 
 class StructuredStatusModel(Protocol):
     def invoke(self, messages: list[SystemMessage | HumanMessage], **kwargs: Any) -> StatusExtraction | dict[str, Any]: ...
-
-
-def _ground_excerpt(source: str, candidate: str) -> str | None:
-    """Return the exact source span matching a model excerpt.
-
-    Direct matches win. A whitespace-normalized fallback tolerates HTML-to-text
-    line wrapping while still returns bytes copied from the source text.
-    """
-
-    candidate = candidate.strip()
-    if not candidate:
-        return ""
-    if candidate in source:
-        return candidate
-    parts = [part for part in re.split(r"\s+", candidate) if part]
-    if not parts:
-        return ""
-    match = re.search(r"\s+".join(re.escape(part) for part in parts), source)
-    return match.group(0) if match else None
-
-
-def is_evidence_grounded(page_text: str, evidence: str, *, allow_empty: bool = False) -> bool:
-    if not evidence.strip():
-        return allow_empty
-    return _ground_excerpt(page_text, evidence) is not None
 
 
 class StatusExtractor:

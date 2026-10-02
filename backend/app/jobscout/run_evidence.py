@@ -16,7 +16,7 @@ class EvidenceRegistry:
     """
 
     def __init__(self, *, max_runs: int = 256, max_urls: int = 2048, ttl_seconds: float = 7200, clock: Callable[[], float] = monotonic):
-        self._entries: OrderedDict[RunKey, tuple[float, set[str]]] = OrderedDict()
+        self._entries: OrderedDict[RunKey, tuple[float, set[str], object]] = OrderedDict()
         self._lock = RLock()
         self._max_runs = max_runs
         self._max_urls = max_urls
@@ -25,7 +25,7 @@ class EvidenceRegistry:
 
     def _prune(self):
         now = self._clock()
-        for key, (created, _) in list(self._entries.items()):
+        for key, (created, _, _) in list(self._entries.items()):
             if now - created >= self._ttl:
                 del self._entries[key]
 
@@ -35,10 +35,10 @@ class EvidenceRegistry:
             self._prune()
             return len(self._entries)
 
-    def start(self, key: RunKey):
+    def start(self, key: RunKey, session=None):
         with self._lock:
             self._prune()
-            self._entries[key] = (self._clock(), set())
+            self._entries[key] = (self._clock(), set(), session)
             self._entries.move_to_end(key)
             while len(self._entries) > self._max_runs:
                 self._entries.popitem(last=False)
@@ -47,6 +47,11 @@ class EvidenceRegistry:
         with self._lock:
             self._prune()
             return key in self._entries
+
+    def session(self, key: RunKey | None):
+        with self._lock:
+            self._prune()
+            return self._entries[key][2] if key in self._entries else None
 
     def add(self, key: RunKey | None, urls: Iterable[str]):
         with self._lock:

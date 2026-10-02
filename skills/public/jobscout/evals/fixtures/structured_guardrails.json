@@ -1,0 +1,429 @@
+[
+  {
+    "id": "absent-quote",
+    "mode": "interview_prep",
+    "target": "标记_absent-quote",
+    "phase1_draft": "标记_absent-quote [来源](https://example.cn/a)",
+    "expected_after": false,
+    "run": {
+      "runtime": {
+        "evidence_version": 2
+      },
+      "tool_messages": [
+        {
+          "type": "ai",
+          "tool_calls": [
+            {
+              "id": "source",
+              "name": "web_fetch",
+              "args": {
+                "url": "https://example.cn/a"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool",
+          "name": "web_fetch",
+          "tool_call_id": "source",
+          "status": "success",
+          "content": "提供数据服务"
+        }
+      ],
+      "structured_evidence": {
+        "server_date": "2026-10-03",
+        "model_output": "```jobscout_report\n{\"company\": \"合成公司\", \"role\": \"开发\", \"evidence\": [{\"section\": \"business\", \"claim\": \"标记_absent-quote\", \"url\": \"https://example.cn/a\", \"quote\": \"融资十亿元\"}]}\n```"
+      }
+    }
+  },
+  {
+    "id": "old-news",
+    "mode": "interview_prep",
+    "target": "标记_old-news",
+    "phase1_draft": "标记_old-news [来源](https://example.cn/a)",
+    "expected_after": false,
+    "run": {
+      "runtime": {
+        "evidence_version": 2
+      },
+      "tool_messages": [
+        {
+          "type": "ai",
+          "tool_calls": [
+            {
+              "id": "source",
+              "name": "web_fetch",
+              "args": {
+                "url": "https://example.cn/a"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool",
+          "name": "web_fetch",
+          "tool_call_id": "source",
+          "status": "success",
+          "content": "2024-10-01 发布 数据服务"
+        }
+      ],
+      "structured_evidence": {
+        "server_date": "2026-10-03",
+        "model_output": "```jobscout_report\n{\"company\": \"合成公司\", \"role\": \"开发\", \"evidence\": [{\"section\": \"news\", \"claim\": \"标记_old-news\", \"url\": \"https://example.cn/a\", \"quote\": \"数据服务\", \"published_at\": \"2024-10-01\", \"published_at_quote\": \"2024-10-01\"}]}\n```"
+      }
+    }
+  },
+  {
+    "id": "forged-date",
+    "mode": "interview_prep",
+    "target": "标记_forged-date",
+    "phase1_draft": "标记_forged-date [来源](https://example.cn/a)",
+    "expected_after": false,
+    "run": {
+      "runtime": {
+        "evidence_version": 2
+      },
+      "tool_messages": [
+        {
+          "type": "ai",
+          "tool_calls": [
+            {
+              "id": "source",
+              "name": "web_fetch",
+              "args": {
+                "url": "https://example.cn/a"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool",
+          "name": "web_fetch",
+          "tool_call_id": "source",
+          "status": "success",
+          "content": "2024-10-01 发布 数据服务"
+        }
+      ],
+      "structured_evidence": {
+        "server_date": "2026-10-03",
+        "model_output": "```jobscout_report\n{\"company\": \"合成公司\", \"role\": \"开发\", \"evidence\": [{\"section\": \"news\", \"claim\": \"标记_forged-date\", \"url\": \"https://example.cn/a\", \"quote\": \"数据服务\", \"published_at\": \"2026-10-01\", \"published_at_quote\": \"2026-10-01\"}]}\n```"
+      }
+    }
+  },
+  {
+    "id": "future-news",
+    "mode": "interview_prep",
+    "target": "标记_future-news",
+    "phase1_draft": "标记_future-news [来源](https://example.cn/a)",
+    "expected_after": false,
+    "run": {
+      "runtime": {
+        "evidence_version": 2
+      },
+      "tool_messages": [
+        {
+          "type": "ai",
+          "tool_calls": [
+            {
+              "id": "source",
+              "name": "web_fetch",
+              "args": {
+                "url": "https://example.cn/a"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool",
+          "name": "web_fetch",
+          "tool_call_id": "source",
+          "status": "success",
+          "content": "2026-10-04 发布 数据服务"
+        }
+      ],
+      "structured_evidence": {
+        "server_date": "2026-10-03",
+        "model_output": "```jobscout_report\n{\"company\": \"合成公司\", \"role\": \"开发\", \"evidence\": [{\"section\": \"news\", \"claim\": \"标记_future-news\", \"url\": \"https://example.cn/a\", \"quote\": \"数据服务\", \"published_at\": \"2026-10-04\", \"published_at_quote\": \"2026-10-04\"}]}\n```"
+      }
+    }
+  },
+  {
+    "id": "missing-date",
+    "mode": "interview_prep",
+    "target": "标记_missing-date",
+    "phase1_draft": "标记_missing-date [来源](https://example.cn/a)",
+    "expected_after": false,
+    "run": {
+      "runtime": {
+        "evidence_version": 2
+      },
+      "tool_messages": [
+        {
+          "type": "ai",
+          "tool_calls": [
+            {
+              "id": "source",
+              "name": "web_fetch",
+              "args": {
+                "url": "https://example.cn/a"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool",
+          "name": "web_fetch",
+          "tool_call_id": "source",
+          "status": "success",
+          "content": "提供数据服务"
+        }
+      ],
+      "structured_evidence": {
+        "server_date": "2026-10-03",
+        "model_output": "```jobscout_report\n{\"company\": \"合成公司\", \"role\": \"开发\", \"evidence\": [{\"section\": \"news\", \"claim\": \"标记_missing-date\", \"url\": \"https://example.cn/a\", \"quote\": \"数据服务\"}]}\n```"
+      }
+    }
+  },
+  {
+    "id": "empty-quote",
+    "mode": "interview_prep",
+    "target": "标记_empty-quote",
+    "phase1_draft": "标记_empty-quote [来源](https://example.cn/a)",
+    "expected_after": false,
+    "run": {
+      "runtime": {
+        "evidence_version": 2
+      },
+      "tool_messages": [
+        {
+          "type": "ai",
+          "tool_calls": [
+            {
+              "id": "source",
+              "name": "web_fetch",
+              "args": {
+                "url": "https://example.cn/a"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool",
+          "name": "web_fetch",
+          "tool_call_id": "source",
+          "status": "success",
+          "content": "提供数据服务"
+        }
+      ],
+      "structured_evidence": {
+        "server_date": "2026-10-03",
+        "model_output": "```jobscout_report\n{\"company\": \"合成公司\", \"role\": \"开发\", \"evidence\": [{\"section\": \"business\", \"claim\": \"标记_empty-quote\", \"url\": \"https://example.cn/a\", \"quote\": \"\"}]}\n```"
+      }
+    }
+  },
+  {
+    "id": "valid-page",
+    "mode": "interview_prep",
+    "target": "标记_valid-page",
+    "phase1_draft": "标记_valid-page [来源](https://example.cn/a)",
+    "expected_after": true,
+    "run": {
+      "runtime": {
+        "evidence_version": 2
+      },
+      "tool_messages": [
+        {
+          "type": "ai",
+          "tool_calls": [
+            {
+              "id": "source",
+              "name": "web_fetch",
+              "args": {
+                "url": "https://example.cn/a"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool",
+          "name": "web_fetch",
+          "tool_call_id": "source",
+          "status": "success",
+          "content": "提供数据服务"
+        }
+      ],
+      "structured_evidence": {
+        "server_date": "2026-10-03",
+        "model_output": "```jobscout_report\n{\"company\": \"合成公司\", \"role\": \"开发\", \"evidence\": [{\"section\": \"business\", \"claim\": \"标记_valid-page\", \"url\": \"https://example.cn/a\", \"quote\": \"数据服务\"}]}\n```"
+      }
+    }
+  },
+  {
+    "id": "valid-snippet",
+    "mode": "interview_prep",
+    "target": "标记_valid-snippet",
+    "phase1_draft": "标记_valid-snippet [来源](https://example.cn/a)",
+    "expected_after": true,
+    "run": {
+      "runtime": {
+        "evidence_version": 2
+      },
+      "tool_messages": [
+        {
+          "type": "ai",
+          "tool_calls": [
+            {
+              "id": "source",
+              "name": "web_search",
+              "args": {
+                "url": "https://example.cn/a"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool",
+          "name": "web_search",
+          "tool_call_id": "source",
+          "status": "success",
+          "content": "[{\"url\": \"https://example.cn/a\", \"snippet\": \"提供数据服务\"}]"
+        }
+      ],
+      "structured_evidence": {
+        "server_date": "2026-10-03",
+        "model_output": "```jobscout_report\n{\"company\": \"合成公司\", \"role\": \"开发\", \"evidence\": [{\"section\": \"business\", \"claim\": \"标记_valid-snippet\", \"url\": \"https://example.cn/a\", \"quote\": \"数据服务\"}]}\n```"
+      }
+    }
+  },
+  {
+    "id": "valid-news",
+    "mode": "interview_prep",
+    "target": "标记_valid-news",
+    "phase1_draft": "标记_valid-news [来源](https://example.cn/a)",
+    "expected_after": true,
+    "run": {
+      "runtime": {
+        "evidence_version": 2
+      },
+      "tool_messages": [
+        {
+          "type": "ai",
+          "tool_calls": [
+            {
+              "id": "source",
+              "name": "web_fetch",
+              "args": {
+                "url": "https://example.cn/a"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool",
+          "name": "web_fetch",
+          "tool_call_id": "source",
+          "status": "success",
+          "content": "2026-10-01 发布 数据服务"
+        }
+      ],
+      "structured_evidence": {
+        "server_date": "2026-10-03",
+        "model_output": "```jobscout_report\n{\"company\": \"合成公司\", \"role\": \"开发\", \"evidence\": [{\"section\": \"news\", \"claim\": \"标记_valid-news\", \"url\": \"https://example.cn/a\", \"quote\": \"数据服务\", \"published_at\": \"2026-10-01\", \"published_at_quote\": \"2026-10-01\"}]}\n```"
+      }
+    }
+  },
+  {
+    "id": "absent-resume-fragment",
+    "mode": "base_match",
+    "target": "30/100",
+    "phase1_draft": "技能匹配 30/100",
+    "expected_after": false,
+    "run": {
+      "runtime": {
+        "evidence_version": 2
+      },
+      "tool_messages": [
+        {
+          "type": "ai",
+          "tool_calls": [
+            {
+              "id": "read",
+              "name": "read_file",
+              "args": {
+                "path": "/mnt/user-data/uploads/resume.md"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool",
+          "name": "read_file",
+          "tool_call_id": "read",
+          "status": "success",
+          "content": "使用 Python 开发"
+        }
+      ],
+      "structured_evidence": {
+        "server_date": "2026-10-03",
+        "uploaded_resumes": {
+          "resume.md": "使用 Python 开发"
+        },
+        "base_records": [
+          {
+            "record_id": "rec1",
+            "公司": "合成公司",
+            "岗位": "开发"
+          }
+        ],
+        "model_output": "```jobscout_match\n{\"candidates\": [{\"record_id\": \"rec1\", \"total\": 30, \"score_items\": [{\"dimension\": \"skills\", \"points\": 30, \"resume_file\": \"resume.md\", \"resume_quote\": \"Java\"}]}]}\n```"
+      }
+    }
+  },
+  {
+    "id": "valid-resume-fragment",
+    "mode": "base_match",
+    "target": "30/100",
+    "phase1_draft": "技能匹配 30/100",
+    "expected_after": true,
+    "run": {
+      "runtime": {
+        "evidence_version": 2
+      },
+      "tool_messages": [
+        {
+          "type": "ai",
+          "tool_calls": [
+            {
+              "id": "read",
+              "name": "read_file",
+              "args": {
+                "path": "/mnt/user-data/uploads/resume.md"
+              }
+            }
+          ]
+        },
+        {
+          "type": "tool",
+          "name": "read_file",
+          "tool_call_id": "read",
+          "status": "success",
+          "content": "使用 Python 开发"
+        }
+      ],
+      "structured_evidence": {
+        "server_date": "2026-10-03",
+        "uploaded_resumes": {
+          "resume.md": "使用 Python 开发"
+        },
+        "base_records": [
+          {
+            "record_id": "rec1",
+            "公司": "合成公司",
+            "岗位": "开发"
+          }
+        ],
+        "model_output": "```jobscout_match\n{\"candidates\": [{\"record_id\": \"rec1\", \"total\": 30, \"score_items\": [{\"dimension\": \"skills\", \"points\": 30, \"resume_file\": \"resume.md\", \"resume_quote\": \"Python\"}]}]}\n```"
+      }
+    }
+  }
+]

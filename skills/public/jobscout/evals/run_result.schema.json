@@ -19,7 +19,8 @@
         "required": ["type"],
         "properties": {
           "type": {"enum": ["ai", "tool"]},
-          "name": {"enum": ["web_search", "web_fetch"]},
+          "agent_id": {"type": "string", "maxLength": 200},
+          "name": {"enum": ["web_search", "web_fetch", "read_file"]},
           "tool_call_id": {"type": "string"},
           "status": {"enum": ["success", "error", "failed", "cancelled"]},
           "content": {"type": "string", "maxLength": 1000000},
@@ -31,7 +32,7 @@
               "required": ["id", "name", "args"],
               "properties": {
                 "id": {"type": "string"},
-                "name": {"enum": ["web_search", "web_fetch"]},
+                "name": {"enum": ["web_search", "web_fetch", "read_file"]},
                 "args": {"type": "object"}
               }
             }
@@ -61,10 +62,53 @@
       "required": ["model", "skill_digest", "started_at"],
       "properties": {
         "model": {"type": "string", "minLength": 1},
+        "evidence_version": {"enum": [1, 2]},
         "skill_digest": {"type": "string", "minLength": 1},
         "fixture_version": {"type": ["string", "null"]},
         "started_at": {"type": "string", "format": "date-time"},
         "temperature": {"type": ["number", "null"]}
+      }
+    },
+    "structured_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "server_date",
+        "model_output"
+      ],
+      "properties": {
+        "server_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "model_output": {
+          "type": "string",
+          "maxLength": 100000
+        },
+        "child_outputs": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "base_bounds": {"type":"object","additionalProperties":false,"properties":{"has_more":{"type":"boolean"},"context_truncated":{"type":"boolean"}}},
+        "base_records": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object"
+          }
+        },
+        "uploaded_resumes": {
+          "type": "object",
+          "maxProperties": 4,
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 200000
+          }
+        }
       }
     },
     "environment": {

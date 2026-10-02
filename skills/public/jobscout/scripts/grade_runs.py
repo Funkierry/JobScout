@@ -11,7 +11,7 @@ import statistics
 import sys
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse
@@ -23,6 +23,9 @@ DEFAULT_DATASET = SKILL_ROOT / "evals" / "behavior_eval_set.json"
 # require installing the backend or loading its configuration / credentials.
 sys.path.insert(0, str(SKILL_ROOT.parents[2] / "backend"))
 from app.jobscout.links import collect_seen_urls, strip_unseen_links  # noqa: E402
+from app.jobscout.evidence import ResearchEvidence, parse_payload  # noqa: E402
+from app.jobscout.matching import score_matches  # noqa: E402
+from app.jobscout.render import render_matches, render_prep  # noqa: E402
 
 QUALITY_WEIGHTS = {
     "intent_flow": 15,
@@ -320,12 +323,16 @@ def check_base_missing_input(run: dict[str, Any], case: dict[str, Any]) -> list[
 def check_followup_gap(run: dict[str, Any], case: dict[str, Any]) -> list[Gate]:
     output = run["output"]
     research_calls = [call for call in tool_calls(run) if canonical_tool_name(call["name"]) in RESEARCH_TOOLS]
-    return [
+    gates = [
         gate("resume_read", bool(tool_calls(run, "read_file")), "追问中读取了简历", "追问要求差距分析但没有读取简历"),
-        gate("reuse_existing_research", not research_calls, "复用了已有研究上下文", "目标未改变却重新调用研究工具"),
         gate("gap_analysis_present", "差距分析" in output, "输出包含差距分析", "输出缺少差距分析"),
         gate("no_sensitive_values", not PHONE_RE.search(output) and not PRC_ID_RE.search(output), "未输出敏感值", "输出疑似手机号或身份证号"),
     ]
+    # V2 cannot trust previous-run sources; re-fetches are necessary. Its
+    # structured replay gate checks this round's evidence instead.
+    if run.get("runtime", {}).get("evidence_version") != 2:
+        gates.append(gate("reuse_existing_research", not research_calls, "复用了已有研究上下文", "目标未改变却重新调用研究工具"))
+    return gates
 
 
 def check_tool_unavailable(run: dict[str, Any], case: dict[str, Any]) -> list[Gate]:
@@ -423,6 +430,8 @@ def evaluate_run(run: dict[str, Any], case: dict[str, Any], threshold: float) ->
     profile = case["expected"]["profile"]
     checker = PROFILE_CHECKERS[profile]
     gates = checker(run, case)
+    if run.get("runtime", {}).get("evidence_version") == 2:
+        gates.extend(check_structured_evidence(run, case))
     add_manual_gates(gates, profile, run)
     score, score_errors = quality_score(run)
 
@@ -447,6 +456,7 @@ def evaluate_run(run: dict[str, Any], case: dict[str, Any], threshold: float) ->
         "tier": case["tier"],
         "tags": list(case.get("tags", [])),
         "profile": profile,
+        "evidence_version": run.get("runtime", {}).get("evidence_version", 1),
         "status": status,
         "hard_gates": [asdict(item) for item in gates],
         "quality_score": score,
@@ -458,6 +468,56 @@ def evaluate_run(run: dict[str, Any], case: dict[str, Any], threshold: float) ->
             "removed_count": metrics.get("removed_count"),
         },
     }
+
+
+def replay_structured_report(run: dict[str, Any], mode: str) -> tuple[str, dict]:
+    """Replay actual captured tools with the production validator and template.
+
+    These offline artifacts must be captured by the evaluator, not supplied by
+    the model being graded. They can include private uploads and stay local.
+    """
+    artifact = run.get("structured_evidence")
+    if not isinstance(artifact, dict):
+        raise ValueError("missing structured artifact")
+    evidence = ResearchEvidence(as_of=date.fromisoformat(artifact["server_date"]), mode=mode,
+                                records=artifact.get("base_records", []), resumes=artifact.get("uploaded_resumes", {}), base_bounds=artifact.get("base_bounds"))
+    pending = {}
+    for message in run.get("tool_messages", []):
+        agent = message.get("agent_id", "root")
+        if message.get("type") == "ai":
+            for call in message.get("tool_calls", []):
+                pending[(agent, call["id"])] = call
+        elif message.get("type") == "tool":
+            call = pending.pop((agent, message.get("tool_call_id")), None)
+            if not call:
+                continue
+            evidence.observe(call, message.get("content", ""), message.get("status", "success"))
+            if call.get("name") == "read_file":
+                evidence.observe_resume(call, message.get("content", ""), message.get("status", "success"))
+    for child in artifact.get("child_outputs", []):
+        evidence.validate(parse_payload(child, "jobscout_evidence"))
+    if mode == "base_match":
+        payload = parse_payload(artifact.get("model_output"), "jobscout_match")
+        matches = score_matches(payload.get("candidates") if isinstance(payload, dict) else None, evidence.records, evidence.read_resumes)
+        report = strip_unseen_links(render_matches(matches, evidence), set())[0]
+        stats = {"accepted": len(matches), "zeroed_items": sum(bool(item["reason"]) for row in matches for item in row["score_items"])}
+    else:
+        payload = parse_payload(artifact.get("model_output"), "jobscout_report")
+        evidence.validate(payload.get("evidence", []) if isinstance(payload, dict) else None)
+        report = strip_unseen_links(render_prep(payload, evidence.items, evidence), evidence.urls)[0]
+        stats = {"accepted": len(evidence.items), "rejected": dict(evidence.rejected)}
+    return report, stats
+
+
+def check_structured_evidence(run, case):
+    if case["expected"]["profile"] not in {"prep_report", "base_report", "followup_gap"}:
+        return []
+    mode = "base_match" if case["expected"]["profile"] == "base_report" else "interview_prep"
+    try:
+        expected, _ = replay_structured_report(run, mode)
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return [gate("structured_evidence_render", False, "", "缺少或损坏本次结构化证据及原始工具记录")]
+    return [gate("structured_evidence_render", expected == run["output"], "同一生产校验器和模板重放结果完全一致", "报告不等于校验后模板结果，可能存在未核验断言、原文或分数")]
 
 
 def percentile(values: list[float], probability: float) -> float | None:
@@ -530,6 +590,7 @@ def build_report(results: list[dict[str, Any]], dataset: dict[str, Any], thresho
         "quality_threshold": threshold,
         "summary": compact_summary(results),
         "slices": {
+            "evidence_version": slice_results(results, "evidence_version"),
             "mode": slice_results(results, "mode"),
             "category": slice_results(results, "category"),
             "risk": slice_results(results, "risk"),

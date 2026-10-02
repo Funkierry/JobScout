@@ -29,21 +29,29 @@ const {
 } = require("./app.js");
 
 // One guard path feeds live output, history, print and Markdown download.
-assert.deepStrictEqual(jobScoutRunContext("prep"), { jobscout_mode: "interview_prep" });
-assert.deepStrictEqual(jobScoutRunContext("match"), { jobscout_mode: "base_match" });
+assert.deepStrictEqual(jobScoutRunContext("prep"), { jobscout_mode: "interview_prep", jobscout_evidence_version: 2 });
+assert.deepStrictEqual(jobScoutRunContext("match"), { jobscout_mode: "base_match", jobscout_evidence_version: 2 });
 const guardedReport = {
   type: "ai", content: "## 公司速览\n[来源](https://example.cn/a)\n## 岗位拆解\n（来源未核验）",
-  additional_kwargs: { jobscout_links: { version: 1, mode: "interview_prep", run_id: "run-1", removed_count: 1 } },
+  additional_kwargs: { jobscout_evidence: { version: 2, accepted_count: 1, mode: "interview_prep", run_id: "run-1", removed_count: 1 } },
 };
 assert.strictEqual(guardedMessageText(guardedReport, "prep"), guardedReport.content);
 assert.strictEqual(extractLastVisibleAiText([guardedReport], "prep"), guardedReport.content);
 const legacyReport = { ...guardedReport, additional_kwargs: {} };
 assert(!guardedMessageText(legacyReport, "prep").includes("https://"));
 assert(guardedMessageText(legacyReport, "prep").includes("来源校验"));
-assert.strictEqual(guardedMessageText(legacyReport, "match"), legacyReport.content);
+assert(guardedMessageText(legacyReport, "match").includes("来源校验"));
+assert(guardedMessageText({ type: "ai", content: "没有标题的编造断言" }).includes("来源校验"));
+assert(guardedMessageText({ ...guardedReport, additional_kwargs: { jobscout_links: { version: 1, mode: "interview_prep", run_id: "old", removed_count: 0 } } }).includes("来源校验"));
+assert.deepStrictEqual(jobScoutRunContext("match", "server-ref"), { jobscout_mode: "base_match", jobscout_evidence_version: 2, jobscout_base_context_ref: "server-ref" });
+assert(!("jobscout_base_context_ref" in jobScoutRunContext("prep", "server-ref")));
 assert.strictEqual(guardedMessageText({ type: "tool", name: "web_search", content: legacyReport.content }, "prep"), "");
 assert.strictEqual(extractLastVisibleAiText([guardedReport, { type: "human", content: "继续" }], "prep"), "");
 assert(markdownToHtml("[来源](<https://example.cn/a(b)>)").includes('href="https://example.cn/a(b)"'));
+const escapedEvidenceHtml = markdownToHtml("| 解读 | 证据 |\n|---|---|\n| 文本 | Python\\|Spark \\*\\*原文\\*\\* \\[链接\\]\\(https://example.cn/a\\) \\<script\\> |");
+assert.strictEqual((escapedEvidenceHtml.match(/<td>/g) || []).length, 2);
+assert(!escapedEvidenceHtml.includes("<strong>") && !escapedEvidenceHtml.includes("<a "));
+assert(escapedEvidenceHtml.includes("Python&#124;Spark") && !escapedEvidenceHtml.includes("<script>"));
 console.log("PASS: JobScout mode and missing-guard fail-closed display");
 
 // ---- application tracker helpers ----
@@ -132,7 +140,7 @@ console.log("PASS: tracker status, review, change and chunked SSE helpers");
 const realMessages = [
   { content: "只回复两个字:你好", type: "human", additional_kwargs: { timestamp: "2026-09-18T16:27:06Z" }, id: "a1" },
   { content: "<system-reminder>\n<current_date>2026-09-19</current_date>\n</system-reminder>", type: "system", additional_kwargs: { hide_from_ui: true }, id: "a2" },
-  { content: "I'm sorry, but I couldn't understand your request.", type: "ai", additional_kwargs: {}, id: "a3" },
+  { content: "I'm sorry, but I couldn't understand your request.", type: "ai", additional_kwargs: guardedReport.additional_kwargs, id: "a3" },
 ];
 const extracted = extractLastVisibleAiText(realMessages);
 assert.strictEqual(extracted, "I'm sorry, but I couldn't understand your request.", "should extract the last non-hidden ai message");
