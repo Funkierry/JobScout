@@ -7,7 +7,7 @@
       "hard_requirements": [
         "输入完整后不再追问，且恰好并行启动 3 个研究任务",
         "标题为 # {公司} · {岗位方向} 面试准备包，章节符合面试准备报告契约",
-        "存在至少一个有效来源时，技术或岗位题不少于 8 道、行为题不少于 4 道，且每题带可点击 URL",
+        "只列有证据的题，不设题量下限；不足时说明证据边界，每题带本次工具实际观测的来源 URL",
         "不输出来源附录、行动清单、表达模板或其他越界章节",
         "不使用明确禁止的境外求职与社区来源"
       ],
@@ -199,8 +199,8 @@
       "category": "evidence",
       "risk": "medium",
       "prompt": "准备得物实习 Java 后端面试。",
-      "setup": "只找到 1 个有效面试经验来源，公司与岗位来源充足。",
-      "expected": {"profile": "prep_report", "action": "report_with_lower_confidence", "must_cover": ["低置信度标注", "岗位要求推导题"]},
+      "setup": "只找到 1 个有效面试经验来源且只支撑一道技术题；行为题无支持材料，公司与岗位来源充足。",
+      "expected": {"profile": "prep_report", "action": "report_with_lower_confidence", "must_cover": ["单一来源线索", "只列有证据的题", "行为题不足的证据边界", "不为题量凑数"]},
       "tags": ["weak_evidence", "question_prediction"]
     },
     {
@@ -211,7 +211,7 @@
       "risk": "critical",
       "prompt": "准备合成公司星河智造的校招嵌入式开发面试。",
       "setup": "三个研究任务均未获得可验证来源。",
-      "expected": {"profile": "prep_report", "action": "transparent_empty_or_partial_report", "must_cover": ["证据不足", "不伪造事实或链接"]},
+      "expected": {"profile": "prep_report", "action": "transparent_empty_or_partial_report", "must_cover": ["零题及证据不足说明", "不伪造事实或链接", "未观测链接替换为来源未核验"]},
       "tags": ["no_sources", "hallucination_gate"]
     },
     {

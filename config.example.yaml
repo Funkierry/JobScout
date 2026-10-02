@@ -66,6 +66,9 @@ logging:
 # (not deprecated) middleware list. Packaged plugins use the `plugins:` block below.
 # extensions:
 #   middlewares:
+#     # JobScout only: requires config.context.jobscout_mode=interview_prep.
+#     # The JobScout UI supplies it; Base matching and generic runs are unchanged.
+#     - app.jobscout.middleware:JobScoutLinkMiddleware
 #     - my_company.deerflow_middlewares:DomainGuardMiddleware
 #     - class: my_company.deerflow_middlewares:LatencyStampingMiddleware
 #       kwargs:

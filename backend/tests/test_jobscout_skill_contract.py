@@ -49,3 +49,12 @@ def test_jobscout_declares_private_base_matching_contract() -> None:
     assert "技能 30" in content
     assert "## 推荐岗位" in content
     assert "## 风险与数据边界" in content
+
+
+def test_jobscout_questions_follow_evidence_instead_of_quota() -> None:
+    content = JOBSCOUT_SKILL_FILE.read_text(encoding="utf-8")
+    for obsolete in ("至少 8", "至少 4", "8 道", "4 道", "两张非空", "不得留空表格", "通用高频题补足", "题目数量目标"):
+        assert obsolete not in content
+    assert "只列有证据的题" in content
+    assert "允许少量题或零题" in content
+    assert "来源未核验" in content

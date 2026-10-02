@@ -9,6 +9,36 @@
     "case_id": {"type": "string", "minLength": 1},
     "run_id": {"type": "string", "minLength": 1},
     "output": {"type": "string", "minLength": 1},
+    "tool_messages": {
+      "description": "Current-run actual web tool messages, including delegated agents; AI entries carry only matching tool calls, never report-derived URLs. Real traces stay gitignored.",
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "properties": {
+          "type": {"enum": ["ai", "tool"]},
+          "name": {"enum": ["web_search", "web_fetch"]},
+          "tool_call_id": {"type": "string"},
+          "status": {"enum": ["success", "error", "failed", "cancelled"]},
+          "content": {"type": "string", "maxLength": 1000000},
+          "tool_calls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "name", "args"],
+              "properties": {
+                "id": {"type": "string"},
+                "name": {"enum": ["web_search", "web_fetch"]},
+                "args": {"type": "object"}
+              }
+            }
+          }
+        }
+      }
+    },
     "tool_calls": {
       "type": "array",
       "items": {
@@ -52,7 +82,8 @@
       "properties": {
         "input_tokens": {"type": "integer", "minimum": 0},
         "output_tokens": {"type": "integer", "minimum": 0},
-        "latency_ms": {"type": "number", "minimum": 0}
+        "latency_ms": {"type": "number", "minimum": 0},
+        "removed_count": {"type": "integer", "minimum": 0}
       }
     },
     "human_review": {

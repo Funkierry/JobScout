@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 import unittest
 
-from grade_runs import build_report, evaluate_run
+from grade_runs import build_report, evaluate_run, output_urls
 
 
 def review(*gate_names: str, score: float = 4.0) -> dict:
@@ -86,6 +87,7 @@ class GradeRunsTest(unittest.TestCase):
             ],
             "runtime": runtime(),
             "environment": {"valid_source_count": 3, "live_web": False},
+            "tool_messages": [{"type": "tool", "name": "web_search", "content": json.dumps([{"url": url} for url in output_urls(prep_output())])}],
             "metrics": {"input_tokens": 1000, "output_tokens": 500, "latency_ms": 1200},
             "human_review": review("no_fabrication", "sources_support_claims", "analysis_grounded"),
         }
@@ -104,6 +106,36 @@ class GradeRunsTest(unittest.TestCase):
         self.assertEqual(result["status"], "hard_fail")
         failed_ids = {gate["gate_id"] for gate in result["hard_gates"] if gate["status"] == "fail"}
         self.assertIn("no_banned_source_domains", failed_ids)
+
+    def test_few_supported_questions_pass_without_quantity_floor(self) -> None:
+        run = self.prep_run()
+        run["output"] = run["output"].replace(question_table(8, "tech"), question_table(1, "tech")).replace(question_table(4, "behavior"), "公开来源未找到，不列无证据题目。")
+        run["output"] = run["output"].replace("已核验公开资料。", "证据不足：技术题仅有一条来源，行为题公开来源未找到。")
+        self.assertEqual(evaluate_run(run, self.prep_case, 80)["status"], "passed")
+
+    def test_zero_questions_with_boundary_passes(self) -> None:
+        run = self.prep_run()
+        for count, kind in ((8, "tech"), (4, "behavior")):
+            run["output"] = run["output"].replace(question_table(count, kind), "公开来源未找到。")
+        run["output"] = run["output"].replace("已核验公开资料。", "题目证据不足，仅取得公司与岗位资料，不列无证据题目。")
+        self.assertEqual(evaluate_run(run, self.prep_case, 80)["status"], "passed")
+
+    def test_unobserved_link_fails_even_with_claimed_source_count(self) -> None:
+        run = self.prep_run()
+        run["output"] += "\n[猜测链接](https://example.cn/invented)"
+        result = evaluate_run(run, self.prep_case, 80)
+        self.assertIn("observed_source_links", {item["gate_id"] for item in result["hard_gates"] if item["status"] == "fail"})
+
+    def test_missing_tool_provenance_cannot_pass(self) -> None:
+        run = self.prep_run()
+        run.pop("tool_messages")
+        self.assertNotEqual(evaluate_run(run, self.prep_case, 80)["status"], "passed")
+
+    def test_canonical_angle_delimited_question_url_passes(self) -> None:
+        run = self.prep_run()
+        run["output"] = run["output"].replace("[来源](https://example.cn/tech/1)", "[来源](<https://example.cn/tech/q(1)>)")
+        run["tool_messages"].append({"type": "tool", "name": "web_search", "content": '[{"url":"https://example.cn/tech/q(1)"}]'})
+        self.assertEqual(evaluate_run(run, self.prep_case, 80)["status"], "passed")
 
     def test_missing_human_review_does_not_auto_pass(self) -> None:
         run = self.prep_run()

@@ -1495,13 +1495,14 @@ function setupComposer() {
  *  `onProgress` (optional): called with the messages array on every `values`
  *  frame, not just the final one, so the caller can show live tool-call phase. */
 async function streamRunToText(threadId, messageText, filesMeta, onProgress) {
+  const runMode = currentMode;
   // Mirrors DeerFlow's own frontend wire format (type/content-blocks, not the
   // simplified role/content string form) so additional_kwargs reliably
   // survives to UploadsMiddleware server-side.
   const humanMessage = {
     type: "human",
     content: [{ type: "text", text: messageText }],
-    additional_kwargs: filesMeta && filesMeta.length ? { files: filesMeta } : {},
+    additional_kwargs: { ...(filesMeta?.length ? { files: filesMeta } : {}), jobscout_mode: runMode },
   };
 
   const res = await api(`/api/threads/${threadId}/runs/stream`, {
@@ -1538,6 +1539,7 @@ async function streamRunToText(threadId, messageText, filesMeta, onProgress) {
       config: {
         recursion_limit: 1000,
         configurable: { reasoning_effort: "medium", subagent_enabled: true },
+        context: jobScoutRunContext(runMode),
       },
       stream_mode: ["values"],
     },
@@ -1576,7 +1578,30 @@ async function streamRunToText(threadId, messageText, filesMeta, onProgress) {
     }
   }
 
-  return extractLastVisibleAiText(lastMessages);
+  return extractLastVisibleAiText(lastMessages, runMode);
+}
+
+function jobScoutRunContext(mode) {
+  return { jobscout_mode: mode === "match" ? "base_match" : "interview_prep" };
+}
+
+/** Canonical display text for both values streams and persisted history.
+ * Backend-filtered content also feeds renderReport's print/download actions.
+ * Old reports cannot be retroactively verified without their original tools. */
+function guardedMessageText(message, mode = "prep") {
+  if (message?.additional_kwargs?.hide_from_ui) return "";
+  if (message?.type === "tool" && message.name !== "ask_clarification") return "";
+  if (message?.tool_calls?.length) return "";
+  const text = contentToText(message?.content).trim();
+  if (mode === "match" || !text) return text;
+  const stamp = message?.additional_kwargs?.jobscout_links;
+  if (stamp?.version === 1 && stamp.mode === "interview_prep" &&
+      typeof stamp.run_id === "string" && stamp.run_id &&
+      Number.isInteger(stamp.removed_count) && stamp.removed_count >= 0) return text;
+  if (looksLikeReport(text) || /https?:|www\.|\]\s*[([]|<a\b/i.test(text)) {
+    return "这份内容尚无本次运行的来源校验记录，暂不展示或导出。旧报告需要重新生成；新报告请先启用 JobScout 来源校验中间件。";
+  }
+  return text;
 }
 
 function contentToText(content) {
@@ -1590,7 +1615,7 @@ function contentToText(content) {
   return "";
 }
 
-function extractLastVisibleAiText(messages) {
+function extractLastVisibleAiText(messages, mode = "prep") {
   // `ask_clarification` is `return_direct=True`: LangGraph ends the run with
   // its ToolMessage (type "tool") as the final state, and the model's own
   // preceding AIMessage carries the tool *call*, not the question text the
@@ -1600,9 +1625,10 @@ function extractLastVisibleAiText(messages) {
   // Gateway's actual response just wasn't the shape this function assumed).
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
+    if (m?.type === "human") break;
     if (m?.additional_kwargs?.hide_from_ui) continue;
     if (m?.type === "ai" || m?.type === "tool") {
-      const text = contentToText(m.content).trim();
+      const text = guardedMessageText(m, mode);
       if (text) return text;
     }
   }
@@ -2003,9 +2029,13 @@ function renderHistoryMessages(messages) {
     renderWelcomeState();
     return;
   }
+  let historyMode = "prep";
   visible.forEach((m, i) => {
     const isLast = i === visible.length - 1;
     if (m.type === "human") {
+      const storedMode = m.additional_kwargs?.jobscout_mode;
+      if (storedMode === "prep" || storedMode === "match") historyMode = storedMode;
+      else if (contentToText(m.content).includes("任务模式：飞书 Base 岗位匹配")) historyMode = "match";
       const original = m.additional_kwargs?.original_user_content;
       const text = stripSkillPrefix(typeof original === "string" ? original : contentToText(m.content)).trim();
       if (text) {
@@ -2013,7 +2043,7 @@ function renderHistoryMessages(messages) {
         sentHistory.push(text); // so ArrowUp recall works after replaying a past thread too
       }
     } else if (m.type === "ai" || m.type === "tool") {
-      const text = contentToText(m.content).trim();
+      const text = guardedMessageText(m, historyMode);
       if (!text) return;
       if (isLast && looksLikeReport(text)) {
         renderReport(text);
@@ -2035,6 +2065,7 @@ function escapeHtml(s) {
 
 function inlineMd(s) {
   let out = escapeHtml(s);
+  out = out.replace(/\[([^\]]+)\]\(&lt;(https?:\/\/[^\s]+?)&gt;\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
@@ -2144,6 +2175,8 @@ if (typeof module !== "undefined") {
   module.exports = {
     markdownToHtml,
     extractLastVisibleAiText,
+    jobScoutRunContext,
+    guardedMessageText,
     contentToText,
     looksLikeReport,
     normalizeReportMarkdownForRender,

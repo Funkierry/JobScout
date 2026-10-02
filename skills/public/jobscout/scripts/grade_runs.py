@@ -19,6 +19,10 @@ from urllib.parse import urlparse
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = SKILL_ROOT / "evals" / "behavior_eval_set.json"
+# The production helper is stdlib-only, so this CLI stays offline and does not
+# require installing the backend or loading its configuration / credentials.
+sys.path.insert(0, str(SKILL_ROOT.parents[2] / "backend"))
+from app.jobscout.links import collect_seen_urls, strip_unseen_links  # noqa: E402
 
 QUALITY_WEIGHTS = {
     "intent_flow": 15,
@@ -56,7 +60,7 @@ MANUAL_GATES = {
 }
 
 URL_RE = re.compile(r"https?://[^\s)>]+", re.IGNORECASE)
-MARKDOWN_URL_RE = re.compile(r"\[[^\]]+\]\((https?://[^)\s]+)\)", re.IGNORECASE)
+MARKDOWN_URL_RE = re.compile(r"\[[^\]]+\]\((?:<https?://[^>\s]+>|https?://[^)\s]+)\)", re.IGNORECASE)
 PHONE_RE = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
 PRC_ID_RE = re.compile(r"(?<!\d)\d{17}[0-9Xx](?!\d)")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
@@ -229,19 +233,21 @@ def check_prep_report(run: dict[str, Any], case: dict[str, Any]) -> list[Gate]:
     gates.append(gate("resume_gap_section", has_gap == requires_gap, "简历差距章节符合输入状态", "差距分析与简历可读状态不一致"))
     gates.append(gate("prep_section_order", h2 == expected_h2, "面试报告二级章节顺序正确", f"二级章节顺序应为 {expected_h2}，实际为 {h2}"))
 
-    valid_source_count = run.get("environment", {}).get("valid_source_count")
-    if isinstance(valid_source_count, int) and valid_source_count > 0:
-        tech_rows = markdown_table_rows(markdown_section(output, 3, "技术 / 岗位题"))
-        behavior_rows = markdown_table_rows(markdown_section(output, 3, "行为题"))
-        gates.append(gate("technical_question_count", len(tech_rows) >= 8, "技术或岗位题不少于 8 道", f"技术或岗位题只有 {len(tech_rows)} 道"))
-        gates.append(gate("behavior_question_count", len(behavior_rows) >= 4, "行为题不少于 4 道", f"行为题只有 {len(behavior_rows)} 道"))
-        rows = tech_rows + behavior_rows
-        linked = bool(rows) and all(MARKDOWN_URL_RE.search(" | ".join(row)) for row in rows)
-        gates.append(gate("question_rows_have_links", linked, "每道题均有可点击 URL", "存在没有可点击 URL 的题目行"))
-    elif valid_source_count == 0:
-        gates.append(Gate("question_minimum_only_with_sources", "pass", "无有效来源，不强制 8+4 题量"))
+    provenance = run.get("tool_messages")
+    seen = collect_seen_urls(provenance or [])
+    _, unseen_count = strip_unseen_links(output, seen)
+    if provenance is None:
+        gates.append(review_gate("observed_source_links", "缺少本轮原始工具轨迹，不能认定来源已核验"))
     else:
-        gates.append(review_gate("question_minimum_only_with_sources", "缺少 environment.valid_source_count，无法判断题量门槛"))
+        gates.append(gate("observed_source_links", unseen_count == 0, "所有链接均见于本轮成功工具结果", f"存在 {unseen_count} 处未见于本轮工具结果的链接"))
+    tech_rows = markdown_table_rows(markdown_section(output, 3, "技术 / 岗位题"))
+    behavior_rows = markdown_table_rows(markdown_section(output, 3, "行为题"))
+    rows = tech_rows + behavior_rows
+    linked = all(MARKDOWN_URL_RE.search(" | ".join(row)) and strip_unseen_links(" | ".join(row), seen)[1] == 0 for row in rows)
+    gates.append(gate("question_rows_have_links", linked, "列出的题目均附已观测来源，不设置题量下限", "存在缺少已观测来源的题目行"))
+    boundary = markdown_section(output, 2, PREP_FINAL_H2) or ""
+    explains_gap = bool(boundary.strip()) and (bool(tech_rows and behavior_rows) or any(word in boundary for word in ("不足", "未找到", "未取得", "无证据", "不列")))
+    gates.append(gate("question_evidence_boundary", explains_gap, "证据边界已说明", "缺少题目类型时必须在证据边界说明，不以通用题凑数"))
 
     banned = banned_output_hosts(output)
     gates.append(gate("no_banned_source_domains", not banned, "未出现禁用来源域名", f"出现禁用来源域名：{', '.join(banned)}"))
@@ -363,6 +369,8 @@ def validate_run_shape(run: dict[str, Any], known_case_ids: set[str], run_ids: s
     run_ids.add(run["run_id"])
     if not isinstance(run.get("tool_calls"), list):
         raise ValueError(f"run {run['run_id']!r} requires tool_calls array")
+    if "tool_messages" in run and (not isinstance(run["tool_messages"], list) or not all(isinstance(message, dict) for message in run["tool_messages"])):
+        raise ValueError(f"run {run['run_id']!r} requires tool_messages to be an array of actual tool event objects")
     runtime = run.get("runtime")
     if not isinstance(runtime, dict):
         raise ValueError(f"run {run['run_id']!r} requires runtime object")
@@ -447,6 +455,7 @@ def evaluate_run(run: dict[str, Any], case: dict[str, Any], threshold: float) ->
             "input_tokens": metrics.get("input_tokens"),
             "output_tokens": metrics.get("output_tokens"),
             "latency_ms": metrics.get("latency_ms"),
+            "removed_count": metrics.get("removed_count"),
         },
     }
 

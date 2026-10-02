@@ -5,9 +5,12 @@
 
 const assert = require("assert");
 const fs = require("fs");
+require("child_process").execFileSync(process.execPath, [require("path").join(__dirname, "test_link_guard.js")], { stdio: "inherit" });
 const {
   markdownToHtml,
   extractLastVisibleAiText,
+  jobScoutRunContext,
+  guardedMessageText,
   looksLikeReport,
   normalizeReportMarkdownForRender,
   sanitizeJobScoutReportMarkdown,
@@ -24,6 +27,24 @@ const {
   filterTrackerRows,
   parseSseFrames,
 } = require("./app.js");
+
+// One guard path feeds live output, history, print and Markdown download.
+assert.deepStrictEqual(jobScoutRunContext("prep"), { jobscout_mode: "interview_prep" });
+assert.deepStrictEqual(jobScoutRunContext("match"), { jobscout_mode: "base_match" });
+const guardedReport = {
+  type: "ai", content: "## 公司速览\n[来源](https://example.cn/a)\n## 岗位拆解\n（来源未核验）",
+  additional_kwargs: { jobscout_links: { version: 1, mode: "interview_prep", run_id: "run-1", removed_count: 1 } },
+};
+assert.strictEqual(guardedMessageText(guardedReport, "prep"), guardedReport.content);
+assert.strictEqual(extractLastVisibleAiText([guardedReport], "prep"), guardedReport.content);
+const legacyReport = { ...guardedReport, additional_kwargs: {} };
+assert(!guardedMessageText(legacyReport, "prep").includes("https://"));
+assert(guardedMessageText(legacyReport, "prep").includes("来源校验"));
+assert.strictEqual(guardedMessageText(legacyReport, "match"), legacyReport.content);
+assert.strictEqual(guardedMessageText({ type: "tool", name: "web_search", content: legacyReport.content }, "prep"), "");
+assert.strictEqual(extractLastVisibleAiText([guardedReport, { type: "human", content: "继续" }], "prep"), "");
+assert(markdownToHtml("[来源](<https://example.cn/a(b)>)").includes('href="https://example.cn/a(b)"'));
+console.log("PASS: JobScout mode and missing-guard fail-closed display");
 
 // ---- application tracker helpers ----
 assert.strictEqual(isTerminalTrackerStatus("Offer"), true);
@@ -208,7 +229,7 @@ const driftedReport = `# 校招求职情报包（字节跳动｜后端开发）
 |---|---|
 | 必备技能 | Go |
 
-3. 面试题预测（8+ 技术/岗位题，4+ 行为题）
+3. 面试题预测（仅列有证据的题）
 技术/岗位题
 | 题目 | 来源 |
 |---|---|
