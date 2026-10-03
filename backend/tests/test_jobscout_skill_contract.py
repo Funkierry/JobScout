@@ -68,3 +68,9 @@ def test_jobscout_v2_evidence_and_score_protocol_in_all_three_tasks():
         assert field in content
     assert "每个得分项必须附简历原文" in content
     assert "不回退原始 Markdown" in content
+
+
+def test_scope_and_followups_belong_to_the_entry_graph():
+    content = JOBSCOUT_SKILL_FILE.read_text(encoding="utf-8")
+    assert "## 范围" not in content and "## 后续对话" not in content
+    assert "## 入口契约" in content and "实际只注册" in content

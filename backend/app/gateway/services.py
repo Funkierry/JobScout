@@ -146,6 +146,8 @@ _SERVER_OWNED_MESSAGE_METADATA_KEYS = (
             SUBAGENT_RECEIPT_VERDICT_KEY,
             SUBAGENT_ACCEPTANCE_VERDICT_KEY,
             UNTRUSTED_INPUT_KEY,
+            "jobscout_route",
+            "jobscout_evidence",
         }
     )
     | PROVENANCE_KEYS
@@ -228,7 +230,7 @@ async def _ensure_thread_metadata(
             # membership key: run admission never modifies project membership —
             # the column is written only by POST /api/threads and
             # /threads/{id}/move — so the key must not persist either.
-            if key not in (DEERFLOW_TRACE_METADATA_KEY, THREAD_PROJECT_METADATA_KEY)
+            if key not in (DEERFLOW_TRACE_METADATA_KEY, THREAD_PROJECT_METADATA_KEY, "jobscout_entry_version")
         }
         await thread_store.create(
             record.thread_id,
@@ -236,6 +238,12 @@ async def _ensure_thread_metadata(
             metadata=metadata,
         )
         return
+    if record.assistant_id == "jobscout":
+        from app.jobscout.admission import BINDING_KEY, effective_assistant
+
+        if effective_assistant(existing) != "jobscout":
+            # Bind only after run admission owns the thread reservation.
+            await thread_store.update_metadata(record.thread_id, {BINDING_KEY: 3})
 
 
 async def _terminal_record_stream_missing(bridge: StreamBridge, record: RunRecord) -> bool:
@@ -424,6 +432,8 @@ def strip_server_owned_state_metadata(values: Mapping[str, Any]) -> dict[str, An
     """
     stripped: dict[str, Any] = {}
     for channel, value in values.items():
+        if channel in {"jobscout_anchor", "jobscout_decision"}:
+            continue
         if channel == "delegations" and isinstance(value, list):
             stripped[channel] = [_strip_external_delegation_verdict(item) for item in value]
         elif isinstance(value, list):
@@ -490,6 +500,7 @@ def normalize_input(raw_input: dict[str, Any] | None, *, trusted_internal: bool 
             converted = [_strip_external_message_metadata(message) for message in converted]
         result = {**raw_input, "messages": converted}
     if not trusted_internal:
+        result = {key: value for key, value in result.items() if key not in {"jobscout_anchor", "jobscout_decision"}}
         delegations = result.get("delegations")
         if isinstance(delegations, list):
             cleaned = [_strip_external_delegation_verdict(entry) for entry in delegations]
@@ -778,8 +789,8 @@ def resolve_agent_factory(assistant_id: str | None):
 
     Custom agents are implemented as ``lead_agent`` + an ``agent_name``
     injected into ``configurable`` or ``context`` — see
-    :func:`build_run_config`.  All ``assistant_id`` values therefore map to the
-    same factory; the routing happens inside the assembly when it reads
+    :func:`build_run_config`. Except the application-only ``jobscout`` entry,
+    assistant ids map to the same factory; routing happens when it reads
     ``cfg["agent_name"]``.
 
     The result is ``assemble_lead_agent``, which returns a
@@ -787,6 +798,10 @@ def resolve_agent_factory(assistant_id: str | None):
     consumer must unwrap ``.graph``. A third-party factory that still returns a
     bare graph keeps working: the unwrap sites are type-checked, not assumed.
     """
+    if assistant_id == "jobscout":
+        from app.jobscout.entry_graph import assemble_jobscout
+
+        return assemble_jobscout
     from deerflow.agents.lead_agent.agent import assemble_lead_agent
 
     return assemble_lead_agent
@@ -1306,7 +1321,9 @@ async def resolve_thread_assistant_id(
         if fail_closed:
             raise
         return None
-    return record.get("assistant_id") if isinstance(record, dict) else None
+    from app.jobscout.admission import effective_assistant
+
+    return effective_assistant(record)
 
 
 async def build_thread_checkpoint_state_accessor(
@@ -1723,6 +1740,22 @@ async def start_run(
 
     owner_context_token = set_current_user(SimpleNamespace(id=owner_user_id)) if owner_user_id else None
     try:
+        from app.jobscout.admission import effective_assistant, enforce_thread_binding, validate_input
+
+        jobscout_contexts = [body.context or {}, *((body.config or {}).get(key) or {} for key in ("context", "configurable"))]
+        jobscout_requested = body.assistant_id == "jobscout" or any(isinstance(value, dict) and value.get("jobscout_mode") in {"interview_prep", "base_match"} for value in jobscout_contexts)
+        # Strict cross-assistant binding is opt-in for JobScout deployments:
+        # ordinary DeerFlow keeps its existing metadata-failure degradation.
+        # With enforcement enabled a failed lookup must never fall back to the
+        # generic lead agent. Unauthenticated in-process callers are trusted.
+        existing_thread = None
+        if jobscout_requested or (user is not None and enforce_thread_binding()):
+            try:
+                existing_thread = await asyncio.wait_for(run_ctx.thread_store.get(thread_id), timeout=5)
+            except Exception:
+                raise HTTPException(503, "暂时无法确认 JobScout 线程绑定，请稍后重试。") from None
+        if effective_assistant(existing_thread) == "jobscout" or jobscout_requested:
+            body = body.model_copy(update={"assistant_id": "jobscout"})
         agent_factory = resolve_agent_factory(body.assistant_id)
         is_internal_caller = getattr(getattr(request, "state", None), "auth_source", None) == AUTH_SOURCE_INTERNAL
         command = getattr(body, "command", None)
@@ -1730,6 +1763,10 @@ async def start_run(
             graph_input = Command(resume=command["resume"])
         else:
             graph_input = normalize_input(body.input, trusted_internal=is_internal_caller)
+        if body.assistant_id == "jobscout":
+            graph_input = validate_input(graph_input)
+            if getattr(body, "conversation_references", None):
+                raise HTTPException(400, "JobScout 不支持跨线程对话引用。")
         # deerflow_trace_id is server-issued, so the caller's value is replaced
         # here at the trust boundary. body.metadata forks two ways -- through
         # build_run_config into config["metadata"], which the run worker
@@ -1856,6 +1893,7 @@ async def start_run(
             config["context"][PROJECT_CONTEXT_KEY] = project_context
 
         async def run_after_metadata(record: RunRecord) -> None:
+            strict_metadata = require_existing_thread or body.assistant_id == "jobscout"
             metadata_task = asyncio.create_task(
                 _ensure_thread_metadata(
                     run_ctx,
@@ -1893,7 +1931,7 @@ async def start_run(
                         sanitize_log_param(thread_id),
                         _THREAD_METADATA_SETUP_TIMEOUT_SECONDS,
                     )
-                    if require_existing_thread:
+                    if strict_metadata:
                         metadata_failure = TimeoutError("Timed out verifying existing thread metadata")
             finally:
                 if metadata_task.done():
@@ -1910,10 +1948,10 @@ async def start_run(
                 if not abort_task.done():
                     abort_task.cancel()
                     abort_task.add_done_callback(_consume_task_result)
-            if metadata_failure is not None and require_existing_thread:
+            if metadata_failure is not None and strict_metadata:
                 await run_mgr.fail_start_if_pending(
                     record.run_id,
-                    error=str(metadata_failure),
+                    error="JobScout thread binding unavailable" if body.assistant_id == "jobscout" else str(metadata_failure),
                 )
             # Continue through run_agent even after metadata abort, timeout,
             # or strict verification failure:

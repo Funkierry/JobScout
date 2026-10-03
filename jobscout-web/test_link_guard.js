@@ -95,6 +95,7 @@ async function main() {
     let consumed = false;
     const frame = Buffer.from("event: values\ndata: " + JSON.stringify({ messages: [base] }) + "\n\n");
     context.api = async (_url, request) => {
+      assert.strictEqual(request.json.assistant_id, "jobscout");
       const config = request.json.config.context;
       assert.strictEqual(config.jobscout_evidence_version, 2);
       assert.strictEqual(config.jobscout_base_context_ref, thread === "owned" ? "server-ref" : undefined);
@@ -107,6 +108,27 @@ async function main() {
     context.testThread = thread;
     assert.strictEqual(await vm.runInContext('streamRunToText(testThread, "匹配", [])', context), base.content);
   }
+  // Fixed replies from the entry gate use the same live/history display path.
+  const rejected = {
+    type: "ai", content: "请补充：目标公司、岗位方向。",
+    additional_kwargs: { jobscout_route: { version: 3, run_id: "gate-run", in_scope: true, intent: "interview_prep", missing_fields: ["company", "role"] } },
+  };
+  context.history = [human, rejected];
+  context.bubbles = [];
+  chat.children = [];
+  vm.runInContext("renderHistoryMessages(history)", context);
+  assert(context.bubbles.some(({ text }) => text === rejected.content));
+  assert.strictEqual(chat.children.length, 0, "a clarification is not a report/export card");
+  let gateConsumed = false;
+  context.api = async (_url, request) => {
+    assert.strictEqual(request.json.assistant_id, "jobscout");
+    return { ok: true, body: { getReader: () => ({ read: async () => {
+      if (gateConsumed) return { done: true };
+      gateConsumed = true;
+      return { done: false, value: Buffer.from("event: values\ndata: " + JSON.stringify({ messages: [human, rejected] }) + "\n\n") };
+    } }) } };
+  };
+  assert.strictEqual(await vm.runInContext('streamRunToText("gate-thread", "面试准备", [])', context), rejected.content);
   console.log("PASS: real history renderer, print/download actions, and values SSE use guarded content");
 }
 

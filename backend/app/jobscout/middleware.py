@@ -40,8 +40,10 @@ class JobScoutLinkMiddleware(AgentMiddleware):
     reports. Missing run identity or lost registry yields an empty allowlist.
     """
 
-    def __init__(self, *, registry: EvidenceRegistry | None = None):
+    def __init__(self, *, registry: EvidenceRegistry | None = None, trusted_resumes: dict | None = None, trusted_anchor: dict | None = None):
         self.registry = registry if registry is not None else RUN_EVIDENCE
+        self.trusted_resumes = trusted_resumes
+        self.trusted_anchor = trusted_anchor
 
     def _enabled(self, runtime) -> bool:
         context = _context(runtime)
@@ -56,7 +58,7 @@ class JobScoutLinkMiddleware(AgentMiddleware):
         if not context.get("is_subagent") and (key := _key(runtime)):
             if self._v2(runtime):
                 snapshot = BASE_SNAPSHOTS.get_snapshot(context.get("jobscout_base_context_ref"), key[0], key[1]) or {}
-                resumes = read_uploaded_resumes(state, key[0], key[1])
+                resumes = self.trusted_resumes if self.trusted_resumes is not None else read_uploaded_resumes(state, key[0], key[1])
                 self.registry.start(key, ResearchEvidence(mode=context["jobscout_mode"], records=snapshot.get("records"), resumes=resumes, base_bounds=snapshot))
             elif context.get("jobscout_mode") == "interview_prep":
                 self.registry.start(key)
@@ -179,8 +181,10 @@ class JobScoutLinkMiddleware(AgentMiddleware):
                 counts = {"accepted_count": len(matches), "zeroed_items": sum(bool(item["reason"]) for row in matches for item in row["score_items"])}
             else:
                 payload = parse_payload(raw, "jobscout_report")
+                if self.trusted_anchor is not None:
+                    payload = {**(payload if isinstance(payload, dict) else {}), **{key: self.trusted_anchor.get(key, "") for key in ("company", "role", "recruitment_type")}}
                 labels = {"company": "公司", "role": "岗位方向", "recruitment_type": "招聘类型"}
-                missing = payload.get("missing_fields") if isinstance(payload, dict) and payload.get("kind") == "clarification" else None
+                missing = payload.get("missing_fields") if self.trusted_anchor is None and isinstance(payload, dict) and payload.get("kind") == "clarification" else None
                 if isinstance(missing, list) and missing and all(isinstance(field, str) and field in labels for field in missing):
                     cleaned, removed = "请补充：" + "、".join(dict.fromkeys(labels[field] for field in missing)) + "。", 0
                 else:

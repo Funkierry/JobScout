@@ -12,7 +12,7 @@
 <p align="center">
   <a href="./LICENSE"><img alt="License MIT" src="https://img.shields.io/badge/license-MIT-f2c94c"></a>
   <a href="./backend/pyproject.toml"><img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white"></a>
-  <a href="./skills/public/jobscout/evals/behavior_eval_set.json"><img alt="Evaluation cases" src="https://img.shields.io/badge/eval-54%20cases-2457D6"></a>
+  <a href="./skills/public/jobscout/evals/behavior_eval_set.json"><img alt="Evaluation cases" src="https://img.shields.io/badge/eval-66%20cases-2457D6"></a>
   <a href="https://github.com/bytedance/deer-flow"><img alt="Powered by DeerFlow" src="https://img.shields.io/badge/powered%20by-DeerFlow-171815"></a>
 </p>
 
@@ -34,12 +34,14 @@
 
 阶段 2 已加入结构化证据校验、固定报告模板和基于简历原文的 Base 计分。启用方式与限制见 [证据校验说明](docs/jobscout/evidence-guard.md)，实际离线验证见 [指标记录](docs/jobscout/metrics.md)。真实模型效果仍待运行。
 
+阶段 3 增加主 Agent 之前的入口分类、持久化目标锚点与模式工具白名单。JobScout 页面使用专属入口；部署时设置 `JOBSCOUT_ENFORCE_THREAD_BINDING=1`，保证已绑定线程不能切回通用 Agent 绕过分类。可选的便宜分类模型由 `JOBSCOUT_INTENT_MODEL` 指定，未配置时模糊请求直接澄清。详见 [入口与路由说明](docs/jobscout/entry-routing.md)。
+
 ## ✨ 为什么是 JobScout
 
 | | 能力 | 你最终得到什么 |
 |---|---|---|
 | 🔎 | **证据驱动的公司调研** | 近期业务、产品与岗位信息，关键结论附可点击来源 |
-| 🎯 | **针对岗位的面试准备** | 至少 8 道技术/岗位题与 4 道行为题，并解释考察方向 |
+| 🎯 | **针对岗位的面试准备** | 只列有来源的技术/岗位题与行为题，说明证据不足之处 |
 | 📄 | **简历差距分析** | 只基于真实上传内容识别匹配项、能力缺口和准备优先级 |
 | 🧩 | **可解释岗位匹配** | 简历 × 飞书岗位库的 100 分制评分、扣分依据和风险边界 |
 | 📌 | **投递进度追踪** | 从个人招聘官网页面识别岗位、环节与可核实的投递日期，按环节标签筛选 |

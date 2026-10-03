@@ -44,6 +44,7 @@ from app.gateway.services import (
     strip_server_owned_state_metadata,
 )
 from app.gateway.utils import sanitize_log_param
+from app.jobscout.admission import BINDING_KEY, effective_assistant
 from deerflow.agents.thread_state import THREAD_STATE_REDUCER_FIELDS
 from deerflow.config.paths import Paths, get_paths
 from deerflow.config.summarization_config import ContextSize
@@ -113,7 +114,7 @@ def _checkpoint_mode_http_error(exc: Exception, thread_id: str) -> HTTPException
 # owner identity through the API surface. Defense-in-depth — the
 # row-level invariant is still ``threads_meta.user_id`` populated from
 # the auth contextvar; this list closes the metadata-blob echo gap.
-_SERVER_RESERVED_METADATA_KEYS: frozenset[str] = frozenset({"owner_id", "user_id", THREAD_PROJECT_METADATA_KEY})
+_SERVER_RESERVED_METADATA_KEYS: frozenset[str] = frozenset({"owner_id", "user_id", THREAD_PROJECT_METADATA_KEY, BINDING_KEY})
 _SIDECAR_METADATA_KEY = "deerflow_sidecar"
 _BRANCH_METADATA_KEY = "deerflow_branch"
 _BRANCH_TITLE_SEQUENCE_METADATA_KEY = "branch_title_sequence"
@@ -989,7 +990,7 @@ async def _branch_thread_with_reservation(
     source_accessor, source_config = await abuild_checkpoint_state_accessor(
         request,
         thread_id=thread_id,
-        assistant_id=source_record.get("assistant_id"),
+        assistant_id=effective_assistant(source_record),
     )
 
     target_message_ids = {body.message_id, *body.message_ids}
@@ -1112,7 +1113,7 @@ async def _branch_thread_with_reservation(
         try:
             await thread_store.create(
                 new_thread_id,
-                assistant_id=source_record.get("assistant_id"),
+                assistant_id=effective_assistant(source_record),
                 display_name=display_name,
                 metadata=branch_metadata,
                 project_id=project_id,
@@ -1286,7 +1287,7 @@ async def get_thread(thread_id: ThreadId, request: Request) -> ThreadResponse:
         accessor, config = await abuild_checkpoint_state_accessor(
             request,
             thread_id=thread_id,
-            assistant_id=record.get("assistant_id") if record is not None else None,
+            assistant_id=effective_assistant(record),
         )
     except _CHECKPOINT_MODE_ERRORS as exc:
         raise _checkpoint_mode_http_error(exc, thread_id) from exc

@@ -1420,7 +1420,7 @@ function setupComposer() {
 
     try {
       if (!activeThreadId) {
-        const thread = await apiJson("/api/threads", { method: "POST", json: { metadata: {} } });
+        const thread = await apiJson("/api/threads", { method: "POST", json: { assistant_id: "jobscout", metadata: {} } });
         activeThreadId = thread.thread_id;
         const opportunity = selectedOpportunity();
         if (opportunity) {
@@ -1471,7 +1471,7 @@ function setupComposer() {
           throw new Error("岗位表中没有可用于匹配的记录,请检查链接或数据表。");
         }
         lastBaseContext = { ...baseContext, source_url: baseUrl, thread_id: activeThreadId };
-        message = withSkillPrefix(buildBaseMatchPrompt({ userText: text, baseContext }));
+        message = text || "飞书 Base 岗位匹配";
       } else {
         message = withSkillPrefix(text || "已上传简历,请查看并纳入差距分析。");
       }
@@ -1509,36 +1509,12 @@ async function streamRunToText(threadId, messageText, filesMeta, onProgress) {
     method: "POST",
     headers: { Accept: "text/event-stream" },
     json: {
+      assistant_id: "jobscout",
       input: { messages: [humanMessage] },
-      // `subagent_enabled` defaults to false server-side (deerflow.agents.
-      // lead_agent.agent: `cfg.get("subagent_enabled", False)`) — the caller
-      // must opt in explicitly, or the `task()` tool (SKILL.md Step 2's
-      // three-way parallel research delegation) is never actually registered
-      // on the model's toolset at all. This was missing here the whole time
-      // (2026-09-19 root-cause investigation): the model wasn't disobeying
-      // SKILL.md's "call task() before writing a report" rule, it genuinely
-      // never had the tool — every prior "asks how to proceed" / "writes an
-      // uncited generic answer" failure traces back to this one missing flag,
-      // not to prompt wording or reasoning_effort.
-      //
-      // reasoning_effort: "low" was the original default (trading reasoning
-      // depth for latency); bumped to "medium" while root-causing the above —
-      // keeping it, since a real 3-way delegation + synthesis benefits from
-      // more reasoning than a single-shot reply did. Revisit if latency/cost
-      // becomes the bigger problem. Requires models.gpt-5.
-      // supports_reasoning_effort: true in config.yaml or the Gateway
-      // silently strips the field.
-      //
-      // `recursion_limit` is LangGraph's step budget for the whole run. The
-      // server default (100) is far too low for this workflow — one real run
-      // (6 lead web_searches + 3 task() delegations + result polling) died at
-      // step 100 with GraphRecursionError before the report was assembled.
-      // 1000 matches what DeerFlow's own frontend sends
-      // (frontend/src/core/threads/hooks.ts). It sits at config.recursion_limit,
-      // a sibling of `configurable`, not inside it.
+      // The JobScout entry binds tools after classification. Browser flags
+      // cannot add tools or change the server's three-task research limit.
       config: {
         recursion_limit: 1000,
-        configurable: { reasoning_effort: "medium", subagent_enabled: true },
         context: jobScoutRunContext(runMode, lastBaseContext?.thread_id === threadId ? lastBaseContext?.context_ref : null),
       },
       stream_mode: ["values"],
@@ -1599,6 +1575,10 @@ function guardedMessageText(message, mode = "prep") {
   const text = contentToText(message?.content).trim();
   if (!text || message?.type === "tool" && message.name === "ask_clarification") return text;
   const stamp = message?.additional_kwargs?.jobscout_evidence;
+  const route = message?.additional_kwargs?.jobscout_route;
+  if (route?.version === 3 && typeof route.run_id === "string" && route.run_id &&
+      typeof route.in_scope === "boolean" && Array.isArray(route.missing_fields) &&
+      (!route.in_scope || route.missing_fields.length > 0)) return text;
   if (stamp?.version === 2 && stamp.mode === (mode === "match" ? "base_match" : "interview_prep") &&
       typeof stamp.run_id === "string" && stamp.run_id &&
       Number.isInteger(stamp.accepted_count) && stamp.accepted_count >= 0 &&

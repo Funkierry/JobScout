@@ -97,6 +97,8 @@ Stage 0 baseline artifacts are private: `scripts/application_tracker_snapshot.py
 
 JobScout source checks live in `app/jobscout/`. Enable `app.jobscout.middleware:JobScoutLinkMiddleware` through the existing configured-extension loader; never import app from harness. The UI sends `jobscout_mode` plus `jobscout_evidence_version=2` and consumes root `values`. V2 validates structured child/task results before aggregation (including Command transport), then renders fixed reports before checkpoints. Only actual current-run web results create sources. Reuse `app/evidence/grounding.py`; do not duplicate grounding. News requires a grounded date within 12 calendar months. Base scoring uses owner/thread-bound server snapshots and actual uploaded-resume reads, never model-provided records/totals. Preserve task lifecycle/token metadata when replacing raw summaries. Registry loss fails closed. New audits contain counts only, never source bodies or private data. Generic runs remain unchanged; v1 retains link filtering only. Raw provider callbacks/journal drafts are not verified reports. Keep grader, skill, UI live/history/export, and fake-graph tests aligned; see `docs/jobscout/evidence-guard.md` and `docs/jobscout/link-guard.md`.
 
+Stage 3: `app/jobscout/entry_graph.py` gates model/tool assembly; anchors are server-owned checkpoint state. Base registers only read_file. Set `JOBSCOUT_ENFORCE_THREAD_BINDING=1` for strict binding. See `docs/jobscout/entry-routing.md`.
+
 ### Backend Benchmarks
 
 `scripts/benchmark/context_snapshot/`: explicit `run-live` needs provider env

@@ -1,5 +1,7 @@
 ### Gateway API (`app/gateway/`)
 
+JobScout's `assistant_id=jobscout` factory classifies before loading models/tools. Strip client `jobscout_anchor`, `jobscout_decision` and route/evidence stamps from run/state inputs. Reserved `jobscout_entry_version=3` metadata binds legacy threads after admission; reads and branches use the effective factory. On JobScout deployments set `JOBSCOUT_ENFORCE_THREAD_BINDING=1`: authenticated requests cannot change assistant to bypass binding, and lookup failures return 503. The default preserves upstream behavior. Ownership precedes lookup; failed admission must not change binding. See `docs/jobscout/entry-routing.md`.
+
 Memory shutdown resolves hot-reloaded config and the backend, flushes, then
 closes as one `await_drained` operation. Keep config resolution inside the
 best-effort error handler and off the event loop so malformed config edits do

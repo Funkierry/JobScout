@@ -20,6 +20,7 @@ def main() -> int:
     scope = parser.add_mutually_exclusive_group()
     scope.add_argument("--full", action="store_true", help="Attempt the upstream offline suite, stopping on its first failure")
     scope.add_argument("--blocking-io", action="store_true")
+    scope.add_argument("--test", action="append", help="Run selected test paths under the same offline guard")
     parser.add_argument("--junitxml", default="../local_eval/jobscout_stage1/pytest.xml")
     args = parser.parse_args()
     backend = Path(__file__).resolve().parents[1]
@@ -78,7 +79,9 @@ def main() -> int:
     sys.addaudithook(audit)
     import pytest
 
-    if args.full:
+    if args.test:
+        tests = args.test
+    elif args.full:
         tests = ["tests/", "-m", "not live", "--ignore=tests/blocking_io", "--ignore=tests/test_client_e2e.py", "-x"]
     elif args.blocking_io:
         tests = ["tests/blocking_io"]
