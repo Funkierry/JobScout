@@ -57,6 +57,29 @@ This uses `DELETE /api/jobscout/threads/{thread_id}` and the existing Gateway
 thread deletion lifecycle, including ownership checks and run reservations.
 Restart an older Gateway to load the new route, then refresh the browser.
 
+## Concurrent refresh and conversation
+
+A tracker refresh and an AI conversation can run together. Switch between the
+tracker and the active conversation without losing its thread, messages or
+progress. Each has a task notice and a separate **停止刷新 / 停止生成** button;
+**返回对话** also works on mobile. Starting another conversation or changing its
+target waits until the current generation finishes or stops.
+
+Refresh completion shows a notice; **查看结果** opens the details on demand.
+Dialogs live outside the hidden panels, so background completion cannot leave
+an invisible modal blocking the composer. Logout cancels owned requests and
+late responses cannot restore the previous account's content.
+
+Ordinary API calls time out after 30 seconds. A single tracker request allows
+10 minutes for the server's check and login budget. Batch streams stop waiting
+after 45 seconds without data or a heartbeat; the server sends a heartbeat every
+10 seconds. Chat stops waiting after 120 seconds without stream traffic, or
+15 minutes for the whole turn. These are client wait limits, not latency claims.
+Chat uses the native run cancellation endpoint and cancel-on-disconnect; tracker
+disconnect cancels pending checks. Completed results remain saved. A cancellation
+request can fail when disconnected from the server; the UI reports that rather
+than claiming the server stopped. Restart Gateway after updating the backend.
+
 ## Run locally
 
 Start the Gateway on `http://localhost:8001`, then serve this directory on port
@@ -148,6 +171,7 @@ From the repository root:
 node jobscout-web/test_pure.js
 backend/.venv/Scripts/python.exe -B jobscout-web/test_ui.py
 backend/.venv/Scripts/python.exe -B jobscout-web/test_history_scroll.py
+backend/.venv/Scripts/python.exe -B jobscout-web/test_concurrency.py
 backend/.venv/Scripts/python.exe -B -m unittest discover -s skills/public/jobscout/scripts -p "test_*.py"
 ```
 
@@ -167,6 +191,9 @@ Its screenshots and measured row counts stay in `local_eval/jobscout_history_scr
 To compare an older layout with the same fixtures, pass `--baseline-ref <commit>`.
 `test_pure.js` also runs deferred-response tests for list ordering, account changes,
 duplicate delete clicks and history selection.
+`test_concurrency.py` uses synthetic streams and a virtual clock to cover concurrent
+chat/refresh, desktop/mobile switching, background completion, explicit cancellation,
+idle timeout, early stream termination, and logout during a delayed report save.
 
 ## Mail and scheduled refresh
 

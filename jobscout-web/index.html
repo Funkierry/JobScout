@@ -204,6 +204,65 @@
       </div>
     </dialog>
 
+    <div class="task-notices" aria-live="polite">
+      <div id="chatTaskNotice" class="task-notice hidden">
+        <span id="chatTaskText">AI 正在处理…</span>
+        <button id="chatTaskReturn" type="button">返回对话</button>
+        <button id="chatCancelBtn" type="button">停止生成</button>
+      </div>
+      <div id="trackerTaskNotice" class="task-notice hidden">
+        <span id="trackerTaskText">正在刷新进度…</span>
+        <button id="trackerTaskDetails" class="hidden" type="button">查看结果</button>
+        <button id="trackerCancelBtn" type="button">停止刷新</button>
+        <button id="trackerTaskDismiss" type="button" aria-label="收起刷新提示">×</button>
+      </div>
+    </div>
+
+      <dialog id="trackerResultDialog" class="tracker-result-dialog" aria-labelledby="trackerResultTitle">
+        <div class="tracker-result-head">
+          <span class="eyebrow eyebrow-dark">REFRESH RESULT</span>
+          <button id="trackerResultClose" type="button" class="secondary-btn">关闭</button>
+        </div>
+        <h3 id="trackerResultTitle">刷新结果</h3>
+        <p id="trackerResultMessage"></p>
+        <dl>
+          <div><dt>公司</dt><dd id="trackerResultCompany"></dd></div>
+          <div><dt>识别岗位</dt><dd id="trackerResultRole"></dd></div>
+          <div><dt>投递进度</dt><dd id="trackerResultStage"></dd></div>
+          <div><dt>投递时间</dt><dd id="trackerResultApplied"></dd></div>
+          <div><dt>本阶段等待</dt><dd id="trackerResultWait"></dd></div>
+          <div><dt>页面状态原文</dt><dd id="trackerResultRaw"></dd></div>
+          <div><dt>识别置信度</dt><dd id="trackerResultConfidence"></dd></div>
+          <div><dt>页面依据</dt><dd id="trackerResultEvidence"></dd></div>
+          <div><dt>查询页面</dt><dd><a id="trackerResultSource" target="_blank" rel="noopener noreferrer">打开官网页面 ↗</a></dd></div>
+          <div><dt>检查时间</dt><dd id="trackerResultChecked"></dd></div>
+        </dl>
+      </dialog>
+      <dialog id="trackerMailDialog" class="tracker-result-dialog" aria-labelledby="trackerMailTitle">
+        <div class="tracker-result-head"><h3 id="trackerMailTitle">招聘邮件</h3><button id="trackerMailClose" type="button" class="secondary-btn">关闭</button></div>
+        <p id="trackerMailStatus" role="status">正在读取邮件连接状态…</p>
+        <button id="trackerMailSync" type="button" class="primary-btn" disabled>同步招聘邮件</button>
+        <div id="trackerMailEvents" class="tracker-mail-events"></div>
+      </dialog>
+      <dialog id="trackerScheduleDialog" class="tracker-result-dialog" aria-labelledby="trackerScheduleTitle">
+        <div class="tracker-result-head"><h3 id="trackerScheduleTitle">定时刷新</h3><button id="trackerScheduleClose" type="button" class="secondary-btn">关闭</button></div>
+        <p id="trackerScheduleStatus" role="status"></p>
+        <form id="trackerScheduleForm" class="tracker-schedule-form">
+          <label class="tracker-check"><input id="trackerScheduleEnabled" type="checkbox" />开启自动检查非终态投递</label>
+          <label>刷新间隔（分钟）<input id="trackerScheduleInterval" type="number" min="60" max="10080" value="360" required /></label>
+          <label>每日最多检查次数<input id="trackerScheduleLimit" type="number" min="1" max="100" value="30" required /></label>
+          <label>额度重置时区<select id="trackerScheduleTimezone"><option value="Asia/Shanghai">北京时间</option><option value="Australia/Sydney">悉尼时间</option><option value="UTC">UTC</option></select></label>
+          <label class="tracker-check"><input id="trackerScheduleModel" type="checkbox" />允许模型回退（可能产生费用）</label>
+          <p class="field-hint">默认只使用确定性解析。登录失效时停止该次检查，不会自动操作登录或投递。失败检查也计入每日额度。</p>
+          <button id="trackerScheduleSave" type="submit" class="primary-btn">保存设置</button>
+        </form>
+      </dialog>
+      <dialog id="trackerNotificationsDialog" class="tracker-result-dialog" aria-labelledby="trackerNotificationsTitle">
+        <div class="tracker-result-head"><h3 id="trackerNotificationsTitle">进度通知</h3><button id="trackerNotificationsClose" type="button" class="secondary-btn">关闭</button></div>
+        <p id="trackerNotificationsStatus" role="status"></p>
+        <div id="trackerNotificationsList" class="tracker-mail-events"></div>
+      </dialog>
+
     <div id="matchPanel" class="match-panel hidden">
       <div class="match-panel-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 11l2 2 4-4"/></svg>
@@ -274,53 +333,9 @@
         </div>
         <div id="trackerFilterTags" class="tracker-filter-tags" role="group" aria-label="投递环节筛选"></div>
       </div>
-      <dialog id="trackerResultDialog" class="tracker-result-dialog" aria-labelledby="trackerResultTitle">
-        <div class="tracker-result-head">
-          <span class="eyebrow eyebrow-dark">REFRESH RESULT</span>
-          <button id="trackerResultClose" type="button" class="secondary-btn">关闭</button>
-        </div>
-        <h3 id="trackerResultTitle">刷新结果</h3>
-        <p id="trackerResultMessage"></p>
-        <dl>
-          <div><dt>公司</dt><dd id="trackerResultCompany"></dd></div>
-          <div><dt>识别岗位</dt><dd id="trackerResultRole"></dd></div>
-          <div><dt>投递进度</dt><dd id="trackerResultStage"></dd></div>
-          <div><dt>投递时间</dt><dd id="trackerResultApplied"></dd></div>
-          <div><dt>本阶段等待</dt><dd id="trackerResultWait"></dd></div>
-          <div><dt>页面状态原文</dt><dd id="trackerResultRaw"></dd></div>
-          <div><dt>识别置信度</dt><dd id="trackerResultConfidence"></dd></div>
-          <div><dt>页面依据</dt><dd id="trackerResultEvidence"></dd></div>
-          <div><dt>查询页面</dt><dd><a id="trackerResultSource" target="_blank" rel="noopener noreferrer">打开官网页面 ↗</a></dd></div>
-          <div><dt>检查时间</dt><dd id="trackerResultChecked"></dd></div>
-        </dl>
-      </dialog>
-      <dialog id="trackerMailDialog" class="tracker-result-dialog" aria-labelledby="trackerMailTitle">
-        <div class="tracker-result-head"><h3 id="trackerMailTitle">招聘邮件</h3><button id="trackerMailClose" type="button" class="secondary-btn">关闭</button></div>
-        <p id="trackerMailStatus" role="status">正在读取邮件连接状态…</p>
-        <button id="trackerMailSync" type="button" class="primary-btn" disabled>同步招聘邮件</button>
-        <div id="trackerMailEvents" class="tracker-mail-events"></div>
-      </dialog>
       <p id="trackerError" class="tracker-error hidden" role="alert"></p>
       <p id="trackerLoading" class="tracker-loading hidden" role="status">正在读取投递记录…</p>
 
-      <dialog id="trackerScheduleDialog" class="tracker-result-dialog" aria-labelledby="trackerScheduleTitle">
-        <div class="tracker-result-head"><h3 id="trackerScheduleTitle">定时刷新</h3><button id="trackerScheduleClose" type="button" class="secondary-btn">关闭</button></div>
-        <p id="trackerScheduleStatus" role="status"></p>
-        <form id="trackerScheduleForm" class="tracker-schedule-form">
-          <label class="tracker-check"><input id="trackerScheduleEnabled" type="checkbox" />开启自动检查非终态投递</label>
-          <label>刷新间隔（分钟）<input id="trackerScheduleInterval" type="number" min="60" max="10080" value="360" required /></label>
-          <label>每日最多检查次数<input id="trackerScheduleLimit" type="number" min="1" max="100" value="30" required /></label>
-          <label>额度重置时区<select id="trackerScheduleTimezone"><option value="Asia/Shanghai">北京时间</option><option value="Australia/Sydney">悉尼时间</option><option value="UTC">UTC</option></select></label>
-          <label class="tracker-check"><input id="trackerScheduleModel" type="checkbox" />允许模型回退（可能产生费用）</label>
-          <p class="field-hint">默认只使用确定性解析。登录失效时停止该次检查，不会自动操作登录或投递。失败检查也计入每日额度。</p>
-          <button id="trackerScheduleSave" type="submit" class="primary-btn">保存设置</button>
-        </form>
-      </dialog>
-      <dialog id="trackerNotificationsDialog" class="tracker-result-dialog" aria-labelledby="trackerNotificationsTitle">
-        <div class="tracker-result-head"><h3 id="trackerNotificationsTitle">进度通知</h3><button id="trackerNotificationsClose" type="button" class="secondary-btn">关闭</button></div>
-        <p id="trackerNotificationsStatus" role="status"></p>
-        <div id="trackerNotificationsList" class="tracker-mail-events"></div>
-      </dialog>
 
       <div id="trackerEmpty" class="tracker-empty hidden">
         <strong>还没有投递记录</strong>

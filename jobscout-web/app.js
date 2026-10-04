@@ -108,8 +108,10 @@ function getCookie(name) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-async function api(path, { method = "GET", json, form, headers = {} } = {}) {
+async function api(path, { method = "GET", json, form, headers = {}, signal, timeoutMs = 30000 } = {}) {
   const opts = { method, credentials: "include", headers: { ...headers } };
+  const signals = [signal, timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : null].filter(Boolean);
+  if (signals.length) opts.signal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
 
   if (json !== undefined) {
     opts.headers["Content-Type"] = "application/json";
@@ -242,6 +244,14 @@ function setupAuthForm() {
   });
 
   $("logoutBtn").addEventListener("click", async () => {
+    for (const job of [chatJob, trackerJob]) {
+      if (!job) continue;
+      job.controller.abort(new DOMException("已退出登录", "AbortError"));
+      finishJob(job);
+    }
+    stopChatTimer("");
+    trackerLastResult = null;
+    $("trackerTaskNotice")?.classList.add("hidden");
     invalidateSessionViews();
     currentUserEmail = null;
     pendingThreadDelete = null;
@@ -298,6 +308,99 @@ let trackerRows = [];
 let trackerBusy = false;
 let trackerStages = [];
 let composerBusy = false;
+let chatJob = null;
+let trackerJob = null;
+let trackerLastResult = null;
+let conversationMode = "prep";
+let conversationOpportunityId = null;
+let chatStatusText = "准备就绪";
+
+function setChatStatus(text) {
+  chatStatusText = text;
+  if (currentMode !== "tracker" && $("chatStatus")) $("chatStatus").textContent = text;
+  if (chatJob && $("chatTaskText")) $("chatTaskText").textContent = text || "AI 正在处理";
+}
+
+function jobIsCurrent(job) { return !job || job.session === viewSession; }
+
+function beginJob(kind) {
+  const job = { kind, mode: currentMode, session: viewSession, controller: new AbortController(), timer: null, deadline: null, runPath: null, stopping: false, message: "" };
+  if (kind === "chat") {
+    beginViewRequest("thread-state");
+    chatJob = job;
+    // This bounds the whole browser turn; native cancel-on-disconnect remains on.
+    job.deadline = setTimeout(() => stopJob(job, "本轮等待已超过 15 分钟，已请求停止，请稍后重试。"), 15 * 60 * 1000);
+    $("chatTaskNotice")?.classList.remove("hidden");
+    if ($("chatCancelBtn")) $("chatCancelBtn").disabled = false;
+  } else {
+    trackerJob = job;
+    trackerLastResult = null;
+    $("trackerTaskNotice")?.classList.remove("hidden");
+    $("trackerTaskDetails")?.classList.add("hidden");
+    $("trackerCancelBtn")?.classList.remove("hidden");
+    if ($("trackerCancelBtn")) $("trackerCancelBtn").disabled = false;
+    if ($("trackerTaskDismiss")) $("trackerTaskDismiss").disabled = true;
+  }
+  return job;
+}
+
+function armStreamTimeout(job, milliseconds) {
+  if (!job || job.stopping) return;
+  clearTimeout(job.timer);
+  job.timer = setTimeout(() => stopJob(job, "连接长时间没有响应，已请求停止；已完成的结果会保留。"), milliseconds);
+}
+
+function finishJob(job) {
+  clearTimeout(job?.timer);
+  clearTimeout(job?.deadline);
+  if (job?.kind === "chat" && chatJob === job) {
+    chatJob = null;
+    $("chatTaskNotice")?.classList.add("hidden");
+    setComposerBusy(false);
+  } else if (trackerJob === job) {
+    trackerJob = null;
+    $("trackerCancelBtn")?.classList.add("hidden");
+    if ($("trackerTaskDismiss")) $("trackerTaskDismiss").disabled = false;
+    setTrackerBusy(false);
+  }
+}
+
+async function stopJob(job, message) {
+  if (!job || job.stopping) return;
+  job.stopping = true;
+  job.message = message || (job.kind === "chat" ? "已请求停止生成。" : "已请求停止刷新；已完成的结果会保留。");
+  const button = $(job.kind === "chat" ? "chatCancelBtn" : "trackerCancelBtn");
+  if (button) button.disabled = true;
+  try {
+    if (job.kind === "chat" && job.runPath) {
+      setChatStatus("正在停止生成…");
+      const response = await api(`${job.runPath}/cancel?wait=false`, { method: "POST", timeoutMs: 10000 });
+      if (!response.ok && response.status !== 409) throw new Error("cancel_not_confirmed");
+    }
+  } catch (_) {
+    job.message = "停止请求未获确认，已断开等待；请稍后查看此对话的运行状态。";
+  } finally {
+    // Also covers stopping before the run's response headers arrive.
+    job.controller.abort(new DOMException(job.message, "AbortError"));
+  }
+}
+
+function notifyTrackerResult(row, message) {
+  trackerLastResult = row ? { row, message } : null;
+  if ($("trackerTaskText")) $("trackerTaskText").textContent = message;
+  $("trackerTaskNotice")?.classList.remove("hidden");
+  $("trackerTaskDetails")?.classList.toggle("hidden", !row);
+}
+
+function setupTaskControls() {
+  $("trackerCancelBtn")?.addEventListener("click", () => stopJob(trackerJob));
+  $("chatCancelBtn")?.addEventListener("click", () => stopJob(chatJob));
+  $("chatTaskReturn")?.addEventListener("click", () => setMode(chatJob?.mode || conversationMode));
+  $("trackerTaskDetails")?.addEventListener("click", () => {
+    if (trackerLastResult) showTrackerResult(trackerLastResult.row, trackerLastResult.message);
+  });
+  $("trackerTaskDismiss")?.addEventListener("click", () => { if (!trackerJob) $("trackerTaskNotice").classList.add("hidden"); });
+}
 let trackerStageFilter = null;
 let trackerAddFormOpen = true;
 let trackerAddFormInitialized = false;
@@ -342,6 +445,9 @@ async function loadOpportunities(selectId = selectedOpportunityId) {
 }
 
 function restoreOpportunityThread() {
+  if (composerBusy) return;
+  conversationMode = currentMode;
+  conversationOpportunityId = selectedOpportunityId;
   const opportunity = selectedOpportunity();
   const threadId = currentMode === "prep" ? opportunity?.prep_thread_id : opportunity?.match_thread_id;
   resetChat();
@@ -353,6 +459,7 @@ function restoreOpportunityThread() {
 }
 
 function prepareSelectedOpportunity({ stage = "" } = {}) {
+  if (composerBusy) return;
   setMode("prep");
   const opportunity = selectedOpportunity();
   if (!opportunity) return;
@@ -370,6 +477,7 @@ function prepareSelectedOpportunity({ stage = "" } = {}) {
 }
 
 function activateOpportunity(opportunityId) {
+  if (composerBusy) return;
   selectedOpportunityId = opportunityId;
   renderOpportunityBar();
   if (currentMode === "prep" || currentMode === "match") restoreOpportunityThread();
@@ -377,6 +485,7 @@ function activateOpportunity(opportunityId) {
 }
 
 function openOpportunityDialog({ company = "", role = "", recruitmentType = "", action = null } = {}) {
+  if (composerBusy) return;
   pendingOpportunityAction = action;
   const existing = $("opportunityExisting");
   existing.replaceChildren(new Option("新建目标岗位", ""));
@@ -632,6 +741,7 @@ function removeWelcomeState() {
 }
 
 function resetChat() {
+  if (composerBusy) return;
   activeThreadId = null;
   clearAttachment();
   $("chatMessages").innerHTML = "";
@@ -639,13 +749,13 @@ function resetChat() {
   sentHistory = [];
   historyIndex = -1;
   historyDraft = "";
-  if ($("chatStatus")) $("chatStatus").textContent = "准备就绪";
+  setChatStatus("准备就绪");
   autoGrowComposer();
   renderWelcomeState();
 }
 
 function setMode(mode, { restoreThread = true } = {}) {
-  const previousMode = currentMode;
+  if (composerBusy && chatJob && mode !== "tracker" && mode !== chatJob.mode) return;
   currentMode = ["match", "tracker"].includes(mode) ? mode : "prep";
   $("prepModeBtn")?.classList.toggle("active", currentMode === "prep");
   $("matchModeBtn")?.classList.toggle("active", currentMode === "match");
@@ -674,10 +784,13 @@ function setMode(mode, { restoreThread = true } = {}) {
       : "输入公司、岗位与招聘类型，也可以粘贴 JD…";
   }
   if ($("welcomeState") && currentMode !== "tracker") renderWelcomeState();
-  if (restoreThread && previousMode !== currentMode) {
-    if (currentMode === "tracker") resetChat();
-    else restoreOpportunityThread();
+  if (currentMode !== "tracker") {
+    const restore = restoreThread && (conversationMode !== currentMode || conversationOpportunityId !== selectedOpportunityId);
+    conversationMode = currentMode;
+    conversationOpportunityId = selectedOpportunityId;
+    if (restore) restoreOpportunityThread();
   }
+  if ($("chatStatus")) $("chatStatus").textContent = currentMode === "tracker" ? `${trackerRows.length} 条投递记录` : chatStatusText;
 }
 
 async function loadLarkStatus() {
@@ -828,9 +941,7 @@ function showTrackerBatchResult(rows) {
   if (!dialog) return;
   const latest = [...rows].reverse().find((row) => row.checked_at) || rows[0];
   if (!latest) return;
-  showTrackerResult(latest, `批量刷新已处理 ${rows.length} 条记录；每条结果已更新到表格。`);
-  $("trackerResultTitle").textContent = "批量刷新完成";
-  $("trackerResultMessage").textContent = `共处理 ${rows.length} 条记录，岗位与进度已写入表格。下面展示最近检查的一条；其他记录请查看表格。`;
+  notifyTrackerResult(latest, `刷新完成，当前共 ${rows.length} 条投递记录；最新结果已更新到表格。`);
 }
 
 function setTrackerBusy(busy) {
@@ -842,6 +953,7 @@ function setTrackerBusy(busy) {
 }
 
 function setTrackerProgress(text, completed = 0, total = 0, visible = true) {
+  if (trackerJob && $("trackerTaskText")) $("trackerTaskText").textContent = text;
   $("trackerProgress")?.classList.toggle("hidden", !visible);
   if ($("trackerProgressText")) $("trackerProgressText").textContent = text;
   if ($("trackerProgressCount")) $("trackerProgressCount").textContent = `${completed} / ${total}`;
@@ -1019,7 +1131,7 @@ async function loadTrackerApplications() {
       trackerAddFormInitialized = true;
     }
     renderTrackerRows();
-    if ($("chatStatus")) $("chatStatus").textContent = `${trackerRows.length} 条投递记录`;
+    if (currentMode === "tracker" && $("chatStatus")) $("chatStatus").textContent = `${trackerRows.length} 条投递记录`;
     loadTrackerNotifications().catch(() => {});
   } catch (error) {
     if (current()) showTrackerError(error.message || String(error));
@@ -1193,26 +1305,35 @@ async function importTrackerCsv() {
 }
 
 async function refreshTrackerRow(applicationId) {
+  if (trackerJob) return null;
+  const job = beginJob("tracker");
   setTrackerBusy(true);
   showTrackerError();
   const current = trackerRows.find((row) => row.id === applicationId);
   const knownIds = new Set(trackerRows.map((row) => row.id));
   setTrackerProgress(`正在检查 ${current?.company || "该岗位"}；如需登录会弹出浏览器窗口`, 0, 1, true);
   try {
-    const outcome = await apiJson(`/api/jobscout/tracker/applications/${applicationId}/refresh`, { method: "POST" });
-    trackerRows = await apiJson("/api/jobscout/tracker/applications");
+    const outcome = await apiJson(`/api/jobscout/tracker/applications/${applicationId}/refresh`, { method: "POST", signal: job.controller.signal, timeoutMs: 600000 });
+    const rows = await apiJson("/api/jobscout/tracker/applications", { signal: job.controller.signal });
+    if (!jobIsCurrent(job) || job.controller.signal.aborted) return null;
+    trackerRows = rows;
     const added = trackerRows.filter((row) => !knownIds.has(row.id)).length;
     renderTrackerRows();
     loadOpportunities().catch((error) => console.error("loadOpportunities failed", error));
     setTrackerProgress(outcome.skipped ? "该岗位已是终态，已跳过" : "检查完成", 1, 1, true);
-    showTrackerResult(outcome.application, outcome.skipped ? "该记录已处于终态，本次没有重新抓取" : `刷新完成；已将页面中识别到的岗位和进度写入表格${added ? `，新增 ${added} 条岗位记录` : ""}`);
+    const message = outcome.skipped ? "该记录已处于终态，本次没有重新抓取"
+      : outcome.application.check_result !== "成功" ? "本次检查未完成，已保留此前进度；请查看结果后重试。"
+      : `刷新完成；已将页面中识别到的岗位和进度写入表格${added ? `，新增 ${added} 条岗位记录` : ""}`;
+    notifyTrackerResult(outcome.application, message);
     return outcome.application;
   } catch (error) {
-    showTrackerError(error.message || String(error));
-    setTrackerProgress("检查失败", 0, 1, true);
+    if (!jobIsCurrent(job)) return null;
+    const message = job.message || (error.name === "TimeoutError" ? "等待检查结果超时，请稍后刷新列表确认。" : error.message || String(error));
+    if (!job.stopping) showTrackerError(message);
+    setTrackerProgress(message, 0, 1, true);
     return null;
   } finally {
-    setTrackerBusy(false);
+    finishJob(job);
   }
 }
 
@@ -1239,35 +1360,51 @@ function applyTrackerProgressEvent(event) {
 }
 
 async function refreshAllTrackerRows() {
+  if (trackerJob) return;
+  const job = beginJob("tracker");
+  let reader;
   setTrackerBusy(true);
   showTrackerError();
   setTrackerProgress("正在启动批量更新", 0, 0, true);
   try {
-    const response = await api("/api/jobscout/tracker/refresh-all", { method: "POST" });
+    armStreamTimeout(job, 45000);
+    const response = await api("/api/jobscout/tracker/refresh-all", { method: "POST", signal: job.controller.signal, timeoutMs: 0 });
     if (!response.ok) {
       const body = await response.json().catch(() => null);
       throw new Error(body?.detail || response.statusText || "批量更新失败");
     }
     if (!response.body) throw new Error("浏览器不支持流式进度，请升级后重试");
-    const reader = response.body.getReader();
+    reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let completed = false;
     while (true) {
       const { value, done } = await reader.read();
+      if (!jobIsCurrent(job) || job.controller.signal.aborted) return;
+      armStreamTimeout(job, 45000);
       buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
       const parsed = parseSseFrames(buffer);
       buffer = parsed.remainder;
-      for (const event of parsed.events) applyTrackerProgressEvent(event);
+      for (const event of parsed.events) {
+        if (event.type === "batch_completed") completed = true;
+        applyTrackerProgressEvent(event);
+      }
       if (done) break;
     }
+    if (!completed) throw new Error("刷新连接提前中断，已完成的结果会保留，请重新读取列表。");
     await loadTrackerApplications();
+    if (!jobIsCurrent(job) || job.controller.signal.aborted) return;
     loadOpportunities().catch((error) => console.error("loadOpportunities failed", error));
     showTrackerBatchResult(trackerRows);
   } catch (error) {
-    showTrackerError(error.message || String(error));
-    setTrackerProgress("批量更新中断", 0, 0, true);
+    if (!jobIsCurrent(job)) return;
+    const message = job.message || error.message || String(error);
+    if (!job.stopping) showTrackerError(message);
+    setTrackerProgress(message, 0, 0, true);
   } finally {
-    setTrackerBusy(false);
+    clearTimeout(job.timer);
+    if (reader) await reader.cancel().catch(() => {});
+    finishJob(job);
   }
 }
 
@@ -1355,6 +1492,7 @@ function setupSidebarShell() {
     if (event.key === "Escape") closeSidebar();
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();
+      if (composerBusy) return;
       if (currentMode === "tracker") setMode("prep", { restoreThread: false });
       resetChat();
       renderThreadList();
@@ -1444,7 +1582,7 @@ function updatePhaseFromMessages(messages) {
 function startChatTimer() {
   chatStartTime = Date.now();
   currentPhaseLabel = null;
-  $("chatStatus").textContent = THINKING_HINTS[0];
+  setChatStatus(THINKING_HINTS[0]);
   clearInterval(chatTimerHandle);
   chatTimerHandle = setInterval(() => {
     const elapsed = Math.round((Date.now() - chatStartTime) / 1000);
@@ -1453,12 +1591,12 @@ function startChatTimer() {
       const hintIndex = elapsed >= 45 ? 3 : elapsed >= 20 ? 2 : elapsed >= 6 ? 1 : 0;
       label = THINKING_HINTS[hintIndex];
     }
-    $("chatStatus").textContent = `${label}(已用时 ${elapsed}s)`;
+    setChatStatus(`${label}(已用时 ${elapsed}s)`);
   }, 1000);
 }
 function stopChatTimer(label) {
   clearInterval(chatTimerHandle);
-  if (label !== undefined) $("chatStatus").textContent = label;
+  if (label !== undefined) setChatStatus(label);
 }
 
 // ------------------------------------------------------------ composer --
@@ -1558,12 +1696,12 @@ function setComposerBusy(busy) {
   $("composerSend").disabled = busy;
   $("attachBtn").disabled = busy;
   if ($("baseUrlInput")) $("baseUrlInput").disabled = busy;
-  if ($("prepModeBtn")) $("prepModeBtn").disabled = busy;
-  if ($("matchModeBtn")) $("matchModeBtn").disabled = busy;
-  if ($("trackerModeBtn")) $("trackerModeBtn").disabled = busy;
-  if ($("sidebarPrepBtn")) $("sidebarPrepBtn").disabled = busy;
-  if ($("sidebarMatchBtn")) $("sidebarMatchBtn").disabled = busy;
-  if ($("sidebarTrackerBtn")) $("sidebarTrackerBtn").disabled = busy;
+  for (const [mode, ids] of [["prep", ["prepModeBtn", "sidebarPrepBtn"]], ["match", ["matchModeBtn", "sidebarMatchBtn"]], ["tracker", ["trackerModeBtn", "sidebarTrackerBtn"]]]) {
+    for (const id of ids) if ($(id)) $(id).disabled = busy && mode !== "tracker" && mode !== (chatJob?.mode || conversationMode);
+  }
+  for (const id of ["newChatBtn", "opportunitySelect", "opportunityNewBtn", "opportunityDeleteBtn", "opportunityPrepBtn", "opportunityMatchBtn"]) {
+    if ($(id)) $(id).disabled = busy;
+  }
 }
 
 function setupComposer() {
@@ -1602,6 +1740,7 @@ function setupComposer() {
 
   $("composerForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (composerBusy || currentMode === "tracker") return;
     const text = input.value.trim();
     const file = pendingFile;
     const isMatchMode = currentMode === "match";
@@ -1623,6 +1762,7 @@ function setupComposer() {
     }
     input.value = "";
     autoGrowComposer();
+    const job = beginJob("chat");
     setComposerBusy(true);
 
     let displayText = isMatchMode
@@ -1634,13 +1774,15 @@ function setupComposer() {
 
     try {
       if (!activeThreadId) {
-        const thread = await apiJson("/api/threads", { method: "POST", json: { assistant_id: "jobscout", metadata: {} } });
+        const thread = await apiJson("/api/threads", { method: "POST", json: { assistant_id: "jobscout", metadata: {} }, signal: job.controller.signal });
+        if (!jobIsCurrent(job) || job.controller.signal.aborted) return;
         activeThreadId = thread.thread_id;
         const opportunity = selectedOpportunity();
         if (opportunity) {
           await apiJson(`/api/jobscout/opportunities/${opportunity.id}/threads`, {
             method: "POST",
-            json: { thread_id: activeThreadId, mode: currentMode },
+            json: { thread_id: activeThreadId, mode: job.mode },
+            signal: job.controller.signal,
           });
           await loadOpportunities(opportunity.id);
         }
@@ -1656,7 +1798,7 @@ function setupComposer() {
       if (file) {
         const form = new FormData();
         form.append("files", file);
-        const res = await api(`/api/threads/${activeThreadId}/uploads`, { method: "POST", form });
+        const res = await api(`/api/threads/${activeThreadId}/uploads`, { method: "POST", form, signal: job.controller.signal });
         if (!res.ok) throw new Error("简历上传失败,请重试或换个文件格式");
         const uploadResult = await res.json();
         // `read_file` hard-rejects binary formats (.pdf/.docx/.xlsx/...) with
@@ -1676,10 +1818,11 @@ function setupComposer() {
 
       let message;
       if (isMatchMode) {
-        $("chatStatus").textContent = "正在安全读取飞书岗位表...";
+        setChatStatus("正在安全读取飞书岗位表...");
         const baseContext = await apiJson("/api/jobscout/base-context", {
           method: "POST",
           json: { url: baseUrl, limit: 200, thread_id: activeThreadId },
+          signal: job.controller.signal,
         });
         if (!baseContext?.record_count) {
           throw new Error("岗位表中没有可用于匹配的记录,请检查链接或数据表。");
@@ -1689,13 +1832,17 @@ function setupComposer() {
       } else {
         message = withSkillPrefix(text || "已上传简历,请查看并纳入差距分析。");
       }
-      await runTurn(message, uploadedFilesMeta);
+      if (!jobIsCurrent(job) || job.controller.signal.aborted) return;
+      await runTurn(message, uploadedFilesMeta, job);
     } catch (err) {
-      addChatBubble("assistant", "⚠️ " + (err.message || String(err)));
-      stopChatTimer("出错了,可以重新发一次");
+      if (jobIsCurrent(job)) {
+        const message = job.message || (err.name === "TimeoutError" ? "请求超时，请稍后重试。" : err.message || String(err));
+        addChatBubble("assistant", "⚠️ " + message);
+        stopChatTimer(message);
+      }
     } finally {
-      setComposerBusy(false);
-      input.focus();
+      finishJob(job);
+      if (jobIsCurrent(job) && currentMode !== "tracker") input.focus();
     }
   });
 }
@@ -1708,8 +1855,9 @@ function setupComposer() {
  *  immediately before this turn — see the additional_kwargs.files note above.
  *  `onProgress` (optional): called with the messages array on every `values`
  *  frame, not just the final one, so the caller can show live tool-call phase. */
-async function streamRunToText(threadId, messageText, filesMeta, onProgress) {
-  const runMode = currentMode;
+async function streamRunToText(threadId, messageText, filesMeta, onProgress, job = null) {
+  const runMode = job?.mode || currentMode;
+  armStreamTimeout(job, 120000);
   // Mirrors DeerFlow's own frontend wire format (type/content-blocks, not the
   // simplified role/content string form) so additional_kwargs reliably
   // survives to UploadsMiddleware server-side.
@@ -1722,6 +1870,8 @@ async function streamRunToText(threadId, messageText, filesMeta, onProgress) {
   const res = await api(`/api/threads/${threadId}/runs/stream`, {
     method: "POST",
     headers: { Accept: "text/event-stream" },
+    signal: job?.controller.signal,
+    timeoutMs: 0,
     json: {
       assistant_id: "jobscout",
       input: { messages: [humanMessage] },
@@ -1732,6 +1882,7 @@ async function streamRunToText(threadId, messageText, filesMeta, onProgress) {
         context: jobScoutRunContext(runMode, lastBaseContext?.thread_id === threadId ? lastBaseContext?.context_ref : null),
       },
       stream_mode: ["values"],
+      on_disconnect: "cancel",
     },
   });
 
@@ -1740,34 +1891,43 @@ async function streamRunToText(threadId, messageText, filesMeta, onProgress) {
     throw new Error(body?.detail?.message || `请求失败 (HTTP ${res.status})`);
   }
 
+  const runPath = res.headers?.get("Content-Location");
+  if (job && runPath?.startsWith(`/api/threads/${threadId}/runs/`) && /^\/api\/threads\/[\w-]+\/runs\/[\w-]+$/.test(runPath)) job.runPath = runPath;
   const reader = res.body.getReader();
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
   let lastMessages = [];
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (!jobIsCurrent(job)) return "";
+      armStreamTimeout(job, 120000);
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    let sep;
-    while ((sep = buffer.indexOf("\n\n")) !== -1) {
-      const rawEvent = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-      const dataLine = rawEvent.split("\n").find((l) => l.startsWith("data:"));
-      const eventLine = rawEvent.split("\n").find((l) => l.startsWith("event:"));
-      if (!dataLine) continue;
-      const eventName = eventLine ? eventLine.slice(6).trim() : "message";
-      let data;
-      try { data = JSON.parse(dataLine.slice(5).trim()); } catch (_) { continue; }
+      let sep;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const rawEvent = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        const dataLine = rawEvent.split("\n").find((l) => l.startsWith("data:"));
+        const eventLine = rawEvent.split("\n").find((l) => l.startsWith("event:"));
+        if (!dataLine) continue;
+        const eventName = eventLine ? eventLine.slice(6).trim() : "message";
+        let data;
+        try { data = JSON.parse(dataLine.slice(5).trim()); } catch (_) { continue; }
 
-      if (eventName === "values" && Array.isArray(data.messages)) {
-        lastMessages = data.messages;
-        onProgress?.(data.messages);
+        if (eventName === "error") throw new Error("生成中断，请稍后重试或查看历史对话。");
+        if (eventName === "values" && Array.isArray(data.messages)) {
+          lastMessages = data.messages;
+          onProgress?.(data.messages);
+        }
       }
     }
+  } finally {
+    if (job) clearTimeout(job.timer);
+    if (reader.cancel) await reader.cancel().catch(() => {});
   }
-
   return extractLastVisibleAiText(lastMessages, runMode);
 }
 
@@ -1939,11 +2099,13 @@ function normalizeReportMarkdownForRender(markdown) {
  *  response looks like a finished report, hand off to the standalone
  *  document view. `filesMeta` is only passed on the turn immediately after
  *  an upload. */
-async function runTurn(messageText, filesMeta) {
+async function runTurn(messageText, filesMeta, job = null) {
   startChatTimer();
   showThinking();
   try {
-    const text = await streamRunToText(activeThreadId, messageText, filesMeta, updatePhaseFromMessages);
+    const text = await streamRunToText(activeThreadId, messageText, filesMeta, updatePhaseFromMessages, job);
+    if (!jobIsCurrent(job)) return;
+    if (job?.stopping) throw new Error(job.message);
     hideThinking();
 
     if (!text) {
@@ -1951,20 +2113,24 @@ async function runTurn(messageText, filesMeta) {
     }
     loadThreadList(); // fire-and-forget: picks up a newly created thread / title update
     if (looksLikeReport(text)) {
-      if (currentMode === "match" && lastBaseContext?.thread_id === activeThreadId) {
+      if ((job?.mode || currentMode) === "match" && lastBaseContext?.thread_id === activeThreadId) {
         const candidates = recommendedBaseRecords(text, lastBaseContext);
         try {
           const stored = await apiJson(`/api/jobscout/match-candidates/${activeThreadId}`, {
             method: "PUT",
+            signal: job?.controller.signal,
             json: {
               source_url: lastBaseContext.source_url,
               source_table_id: lastBaseContext.table_id,
               candidates: candidates.map((item) => ({ record_id: item.recordId, company: item.company, role: item.role, jd_text: item.jdText })),
             },
           });
+          if (!jobIsCurrent(job)) return;
           savedMatchCandidates = { threadId: activeThreadId, candidates: stored };
         } catch (error) { console.error("save match candidates failed", error); }
       }
+      if (!jobIsCurrent(job)) return;
+      if (job?.stopping) throw new Error(job.message);
       stopChatTimer("已完成");
       addChatBubble("assistant", "✅ 报告已生成,见下方:");
       renderReport(text);
@@ -1973,9 +2139,11 @@ async function runTurn(messageText, filesMeta) {
       addChatBubble("assistant", text);
     }
   } catch (err) {
+    if (!jobIsCurrent(job)) return;
     hideThinking();
-    stopChatTimer("出错了,可以重新发一次");
-    addChatBubble("assistant", "⚠️ " + (err.message || String(err)));
+    const message = job?.message || err.message || String(err);
+    stopChatTimer(message);
+    addChatBubble("assistant", "⚠️ " + message);
   }
 }
 
@@ -2109,6 +2277,7 @@ function renderReport(markdown) {
 
 function wireNewChatButton() {
   $("newChatBtn")?.addEventListener("click", () => {
+    if (composerBusy) return;
     if (currentMode === "tracker") setMode("prep", { restoreThread: false });
     resetChat();
     renderThreadList();
@@ -2179,6 +2348,7 @@ function renderThreadList() {
     const title = t.values?.title || "未命名对话";
     item.textContent = title;
     item.title = title;
+    item.disabled = composerBusy;
     item.setAttribute("aria-pressed", t.thread_id === activeThreadId ? "true" : "false");
     item.addEventListener("click", () => selectThread(t.thread_id));
     const remove = document.createElement("button");
@@ -2265,6 +2435,7 @@ function setupThreadDeletion() {
 }
 
 async function selectThread(threadId) {
+  if (composerBusy) return;
   if (threadId === activeThreadId || deletedThreadIds.has(threadId)) return;
   const current = beginViewRequest("thread-state");
   const linked = opportunities.find((item) => item.prep_thread_id === threadId || item.match_thread_id === threadId);
@@ -2468,6 +2639,7 @@ if (typeof document !== "undefined") {
   setupTracker();
   setupSidebarShell();
   setupThreadDeletion();
+  setupTaskControls();
   wireNewChatButton();
   checkSession();
 }

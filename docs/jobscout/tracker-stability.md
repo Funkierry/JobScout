@@ -37,6 +37,18 @@
 | `APPLICATION_TRACKER_MAX_JSON_BYTES` | 256000 | 每响应 1–1000000 字节 |
 | `APPLICATION_TRACKER_MAX_JSON_RESPONSES` | 20 | 每窗口 1–100 个响应；模型投影只取前 20 个 |
 
+## 并发、取消与期限
+
+JobScout 路由通过 `_get_tracker_store()` 在线程池中创建 SQLite store，避免初始化和迁移等待数据库写锁时阻塞 Gateway 的事件循环。只把查询方法放进 `to_thread` 不够：参数中的 `_tracker_store()` 会先在事件循环执行。存储结构和 DeerFlow 通用执行器保持原有行为。
+
+每条检查的 `APPLICATION_TRACKER_CHECK_TIMEOUT_SECONDS` 默认 **180 秒**，必须为有限正数。期限覆盖 profile 锁等待、导航、抽取与后续 Agent 步骤；交互式单条检查额外加入 `APPLICATION_TRACKER_LOGIN_TIMEOUT_SECONDS`（默认 **300 秒**）的人工登录额度，默认总预算为 **480 秒**。批量关闭人工登录，每条仍为 180 秒。这是工作期限，取消后的资源清理另需时间；不是返回时延保证。
+
+在线抽取使用 `StatusExtractor.aextract()` 和模型 `ainvoke()`，让取消传递到异步请求；离线 `extract()` 继续复用同一来源优先级、证据和日期校验。兼容的自定义同步抽取器仍通过线程执行，已启动的同步工作不能被 Python 强制停止；生产异步路径不依赖该兜底。供应商端是否停止计费不由本地取消保证。
+
+单条请求监听断连；批量 SSE 每 10 秒发送注释心跳。断连先取消并等待检查/worker，再关闭浏览器启动器；AnyIO 取消范围内的清理用 shield 保护，确保 context 和 profile 锁得到释放。普通超时按检查失败记录并保留此前状态；用户取消不会被当成一次失败检查。已完成的写入不会因停止请求而回滚。
+
+前端刷新与聊天分别持有任务和 AbortController，可同时运行并切换视图。完成刷新只展示通知，详情由用户打开；所有 tracker 弹窗移到隐藏面板之外。客户端等待上限见 [Web 说明](../../jobscout-web/README.md#concurrent-refresh-and-conversation)。这些更改仅限 JobScout，不修改通用 Agent、run manager 或全局模型重试/超时配置。
+
 ## 同数据回放（用户主动运行）
 
 本阶段未调用真实模型、未访问真实招聘页面。现有 20 条辅助标签能与本地快照匹配，其中 16 条得到符合当前投影规则的同站 JSON，共 48 个观察对象（多个标签可共享同一快照，不能当成 48 条独立申请）。2 条待核对标签不参与比较。原标签文件保持不变，JSON 只在内存中关联；关联依据是正文 SHA-256 和脱敏后的最终 URL，重复匹配会报错。

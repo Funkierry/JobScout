@@ -424,3 +424,29 @@ JSON 回放、规则评分和 DOM-only 回放共用生产抽取器与既有判�
 | 受保护 pytest 外网触发次数 | 0 |
 
 全量前后均由 `-x` 停于 `test_boxlite_shim_workaround_retries_after_fixing_permissions` 的既有 Windows 执行权限位断言，尚未执行到新增删除测试；新增测试已由独立运行和专项覆盖。blocking-I/O 保留 Windows chmod、长路径、缺少 Lark CLI 的既有失败；先前失败的 memory timeout 用例本次通过，未修改其实现，不能归因于本次修复。没有声称全量通过。测量 JSON、日志与截图仅留在 `local_eval/jobscout_history_scroll/` 等忽略目录，GitHub 展示图仍仅使用合成数据。
+
+## 刷新与聊天并发修复（2026-10-04）
+
+修复前基线为 `b95d21b01e271c4c2242eaa7129e07bfbfd49def`。离线浏览器复现：在聊天视图收到 tracker 结果时，隐藏面板里的模态弹窗宽高为 0，仍拦截整页点击，Escape 才能恢复；生成期间模式按钮也全部禁用。修复后，后台结果只显示可关闭通知，详情主动打开；刷新与对话独立取消、切换保留当前线程。补测退出登录后延迟失败的报告保存，确保旧报告不会回填。
+
+后端将 JobScout SQLite 初始化移出事件循环，给单条检查加入期限，使用异步模型抽取；断连取消并等待检查清理，批量增加心跳。20 项新增 pytest 覆盖 store 初始化线程、单条断连不写伪失败记录、慢流心跳、worker/launcher 关闭顺序、AnyIO 取消清理、导航及模型超时、无效期限、同步/异步 JSON 优先级和逐字校验一致性。配置与限制见 [tracker-stability.md](tracker-stability.md#并发取消与期限)。
+
+| 检查 | 实际结果 |
+|---|---|
+| 新增后端取消/并发/期限测试 | 20 通过；6.75 秒 |
+| JobScout / tracker 专项 pytest | 361 通过；61.38 秒 |
+| 修改前全量离线 pytest | 1936 通过、1 失败、30 跳过、3 deselected；255.95 秒 |
+| 修改后全量离线 pytest | 1946 通过、1 失败、30 跳过、3 deselected；255.55 秒 |
+| 修改前 blocking-I/O | 129 通过、16 失败、1 跳过；28.33 秒 |
+| 修改后 blocking-I/O | 129 通过、16 失败、1 跳过；27.30 秒；新增失败 ID 为 0 |
+| 前端 `test_pure.js` | 通过 |
+| 原有 `test_ui.py` / `test_history_scroll.py` | 均通过；默认空闲布局仍为 1440×1000 可见 11 行、1366×768 可见 6 行 |
+| 新增 `test_concurrency.py` | 通过；合成单条/批量刷新与聊天并行、后台完成、桌面/手机切换、停止、虚拟时钟超时、提前断流、登出及迟到结果 |
+| 浏览器意外请求 / 页面脚本异常 | 0 / 0 |
+| 技能脚本 unittest | 18 通过；0.019 秒 |
+| 说明契约 | 12 通过；1.76 秒 |
+| Ruff lint / format | 8 个 Python 文件通过 |
+| 受保护 pytest 外网触发次数 | 0 |
+| 真实招聘页面并发耗时、真实模型效果与费用 | 待运行 |
+
+全量前后仍因 `-x` 停于同一 BoxLite Windows 执行权限位断言，仅执行到按名称排序在其之前的新期限测试；新增并发测试也由独立运行和完整专项覆盖。blocking-I/O 的 16 个失败 ID 前后完全相同，仍为既有 Windows chmod、长路径及缺少 Lark CLI 等环境问题，不声称全量通过。上述秒数是测试运行时间，不能当作真实业务时延提升。所有请求由 fixture/mock 处理，未访问招聘网站、未调用真实模型；日志和报告留在忽略目录 `local_eval/tracker_concurrency/`。

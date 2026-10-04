@@ -25,6 +25,9 @@ class StubStructuredModel:
             raise self.response
         return self.response
 
+    async def ainvoke(self, messages, **kwargs):
+        return self.invoke(messages)
+
 
 def _application() -> ApplicationInput:
     return ApplicationInput(

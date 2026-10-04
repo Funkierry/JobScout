@@ -5,8 +5,10 @@ import csv
 import io
 import json
 import logging
+from contextlib import aclosing
 from dataclasses import asdict
 
+from anyio import CancelScope
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response, StreamingResponse
@@ -28,6 +30,7 @@ from app.application_tracker.store import (
     StoredMatchCandidate,
     StoredOpportunity,
 )
+from app.application_tracker.tasks import keepalive_stream, until_disconnected
 from app.application_tracker.update_service import (
     ApplicationNotFoundError,
     RefreshOutcome,
@@ -49,6 +52,11 @@ router = APIRouter(prefix="/api/jobscout", tags=["jobscout"])
 
 def _tracker_store() -> ApplicationTrackerStore:
     return ApplicationTrackerStore()
+
+
+async def _get_tracker_store() -> ApplicationTrackerStore:
+    # Construction performs schema checks and SQLite writes too.
+    return await asyncio.to_thread(_tracker_store)
 
 
 def _new_tracker_agent() -> ApplicationTrackerAgent:
@@ -237,7 +245,7 @@ async def load_base_context(
 @require_permission("runs", "read")
 async def list_opportunities(request: Request) -> list[StoredOpportunity]:
     del request
-    return await asyncio.to_thread(_tracker_store().list_opportunities, get_effective_user_id())
+    return await asyncio.to_thread((await _get_tracker_store()).list_opportunities, get_effective_user_id())
 
 
 @router.post("/opportunities", response_model=StoredOpportunity)
@@ -245,7 +253,7 @@ async def list_opportunities(request: Request) -> list[StoredOpportunity]:
 async def create_opportunity(body: OpportunityCreate, request: Request) -> StoredOpportunity:
     del request
     try:
-        return await asyncio.to_thread(_tracker_store().create_opportunity, get_effective_user_id(), **body.model_dump())
+        return await asyncio.to_thread((await _get_tracker_store()).create_opportunity, get_effective_user_id(), **body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -254,7 +262,7 @@ async def create_opportunity(body: OpportunityCreate, request: Request) -> Store
 @require_permission("runs", "create")
 async def delete_opportunity(opportunity_id: int, request: Request) -> Response:
     del request
-    deleted = await asyncio.to_thread(_tracker_store().delete_opportunity, get_effective_user_id(), opportunity_id)
+    deleted = await asyncio.to_thread((await _get_tracker_store()).delete_opportunity, get_effective_user_id(), opportunity_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Opportunity was not found")
     return Response(status_code=204)
@@ -295,7 +303,7 @@ async def link_opportunity_thread(opportunity_id: int, body: OpportunityThreadLi
     user_id = get_effective_user_id()
     if await get_thread_store(request).get(body.thread_id, user_id=user_id) is None:
         raise HTTPException(status_code=404, detail="Thread was not found")
-    store = _tracker_store()
+    store = await _get_tracker_store()
     try:
         linked = await asyncio.to_thread(store.link_opportunity_thread, user_id, opportunity_id, body.thread_id, body.mode)
     except ValueError as exc:
@@ -310,7 +318,7 @@ async def link_opportunity_thread(opportunity_id: int, body: OpportunityThreadLi
 async def link_opportunity_application(opportunity_id: int, body: OpportunityApplicationLink, request: Request) -> StoredOpportunity:
     del request
     user_id = get_effective_user_id()
-    store = _tracker_store()
+    store = await _get_tracker_store()
     try:
         linked = await asyncio.to_thread(store.link_opportunity_application, user_id, opportunity_id, body.application_id)
     except ValueError as exc:
@@ -326,7 +334,7 @@ async def list_match_candidates(thread_id: ThreadId, request: Request) -> list[S
     user_id = get_effective_user_id()
     if await get_thread_store(request).get(thread_id, user_id=user_id) is None:
         raise HTTPException(status_code=404, detail="Thread was not found")
-    return await asyncio.to_thread(_tracker_store().list_match_candidates, user_id, thread_id)
+    return await asyncio.to_thread((await _get_tracker_store()).list_match_candidates, user_id, thread_id)
 
 
 @router.put("/match-candidates/{thread_id}", response_model=list[StoredMatchCandidate])
@@ -337,7 +345,7 @@ async def replace_match_candidates(thread_id: ThreadId, body: MatchCandidatesWri
         raise HTTPException(status_code=404, detail="Thread was not found")
     try:
         return await asyncio.to_thread(
-            _tracker_store().replace_match_candidates,
+            (await _get_tracker_store()).replace_match_candidates,
             user_id,
             thread_id,
             source_url=body.source_url,
@@ -368,7 +376,7 @@ async def tracker_schedule(request: Request) -> dict:
     from app.gateway.deps import get_config, get_scheduled_task_repo
 
     user_id = get_effective_user_id()
-    store = SchedulingStore(_tracker_store())
+    store = SchedulingStore(await _get_tracker_store())
     settings = await asyncio.to_thread(store.settings, user_id)
     task = None
     try:
@@ -396,7 +404,7 @@ async def configure_tracker_schedule(body: RefreshSettings, request: Request) ->
     from deerflow.scheduler.schedules import next_run_at
 
     user_id = get_effective_user_id()
-    store = SchedulingStore(_tracker_store())
+    store = SchedulingStore(await _get_tracker_store())
     if body.enabled and not (enabled() and get_config().scheduler.enabled):
         raise HTTPException(409, "定时刷新尚未在服务器启用，请先完成本地配置。")
     if not body.enabled:
@@ -451,7 +459,7 @@ async def configure_tracker_schedule(body: RefreshSettings, request: Request) ->
 async def tracker_notifications(request: Request) -> list[dict]:
     from app.application_tracker.scheduling import SchedulingStore
 
-    return await asyncio.to_thread(SchedulingStore(_tracker_store()).notifications, get_effective_user_id())
+    return await asyncio.to_thread(SchedulingStore(await _get_tracker_store()).notifications, get_effective_user_id())
 
 
 @router.post("/tracker/notifications/{notification_id}/read")
@@ -459,7 +467,7 @@ async def tracker_notifications(request: Request) -> list[dict]:
 async def read_tracker_notification(notification_id: int, request: Request) -> dict:
     from app.application_tracker.scheduling import SchedulingStore
 
-    if not await asyncio.to_thread(SchedulingStore(_tracker_store()).mark_read, get_effective_user_id(), notification_id):
+    if not await asyncio.to_thread(SchedulingStore(await _get_tracker_store()).mark_read, get_effective_user_id(), notification_id):
         raise HTTPException(404, "Notification was not found")
     return {"read": True}
 
@@ -469,7 +477,7 @@ async def read_tracker_notification(notification_id: int, request: Request) -> d
 async def tracker_mail_events(request: Request) -> list[dict]:
     from app.application_tracker.email.store import MailStore
 
-    return await asyncio.to_thread(MailStore(_tracker_store()).list_events, get_effective_user_id())
+    return await asyncio.to_thread(MailStore(await _get_tracker_store()).list_events, get_effective_user_id())
 
 
 @router.post("/tracker/mail/sync")
@@ -478,7 +486,7 @@ async def tracker_mail_sync(request: Request) -> dict:
     from app.application_tracker.email.service import sync_mail
 
     try:
-        return await asyncio.to_thread(sync_mail, _tracker_store(), get_effective_user_id())
+        return await asyncio.to_thread(sync_mail, (await _get_tracker_store()), get_effective_user_id())
     except Exception:
         raise HTTPException(status_code=503, detail="邮件同步未完成，请检查本地只读授权与连接配置。") from None
 
@@ -492,7 +500,7 @@ async def tracker_mail_sync(request: Request) -> dict:
 async def list_tracker_applications(request: Request) -> list[StoredApplication]:
     del request
     user_id = get_effective_user_id()
-    return await asyncio.to_thread(_tracker_store().list_applications, user_id)
+    return await asyncio.to_thread((await _get_tracker_store()).list_applications, user_id)
 
 
 @router.post("/tracker/applications", response_model=StoredApplication)
@@ -501,7 +509,7 @@ async def create_tracker_application(body: TrackerApplicationCreate, request: Re
     del request
     try:
         application = ApplicationInput(company=body.company, role=body.role or "待识别岗位", url=body.url, applied_at=body.applied_at)
-        return await asyncio.to_thread(_tracker_store().add_application, get_effective_user_id(), application)
+        return await asyncio.to_thread((await _get_tracker_store()).add_application, get_effective_user_id(), application)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -511,7 +519,7 @@ async def create_tracker_application(body: TrackerApplicationCreate, request: Re
 async def patch_tracker_application(application_id: int, body: TrackerApplicationPatch, request: Request) -> StoredApplication:
     del request
     try:
-        row = await asyncio.to_thread(_tracker_store().update_application, get_effective_user_id(), application_id, body.model_dump(exclude_unset=True))
+        row = await asyncio.to_thread((await _get_tracker_store()).update_application, get_effective_user_id(), application_id, body.model_dump(exclude_unset=True))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if row is None:
@@ -523,7 +531,7 @@ async def patch_tracker_application(application_id: int, body: TrackerApplicatio
 @require_permission("runs", "create")
 async def delete_tracker_application(application_id: int, request: Request) -> Response:
     del request
-    deleted = await asyncio.to_thread(_tracker_store().delete_application, get_effective_user_id(), application_id)
+    deleted = await asyncio.to_thread((await _get_tracker_store()).delete_application, get_effective_user_id(), application_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Application was not found")
     return Response(status_code=204)
@@ -533,7 +541,7 @@ async def delete_tracker_application(application_id: int, request: Request) -> R
 @require_permission("runs", "read")
 async def get_tracker_stages(request: Request) -> list[str]:
     del request
-    return await asyncio.to_thread(_tracker_store().list_stages, get_effective_user_id())
+    return await asyncio.to_thread((await _get_tracker_store()).list_stages, get_effective_user_id())
 
 
 @router.put("/tracker/stages", response_model=list[str])
@@ -541,7 +549,7 @@ async def get_tracker_stages(request: Request) -> list[str]:
 async def put_tracker_stages(body: TrackerStagesUpdate, request: Request) -> list[str]:
     del request
     try:
-        return await asyncio.to_thread(_tracker_store().replace_stages, get_effective_user_id(), body.stages)
+        return await asyncio.to_thread((await _get_tracker_store()).replace_stages, get_effective_user_id(), body.stages)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -550,7 +558,7 @@ async def put_tracker_stages(body: TrackerStagesUpdate, request: Request) -> lis
 @require_permission("runs", "read")
 async def export_tracker_csv(request: Request) -> Response:
     del request
-    rows = await asyncio.to_thread(_tracker_store().list_applications, get_effective_user_id())
+    rows = await asyncio.to_thread((await _get_tracker_store()).list_applications, get_effective_user_id())
     output = io.StringIO(newline="")
     writer = csv.writer(output)
     writer.writerow(["公司", "岗位", "投递日期", "投递日期原文", "自定义环节", "识别状态", "页面原始状态", "查询链接", "识别结果", "最近检查时间", "置信度", "证据"])
@@ -591,7 +599,7 @@ async def import_tracker_csv(
     except CsvImportError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return await asyncio.to_thread(
-        _tracker_store().import_applications,
+        (await _get_tracker_store()).import_applications,
         get_effective_user_id(),
         applications,
     )
@@ -609,7 +617,7 @@ async def list_tracker_application_history(
 ) -> list[StoredCheck]:
     del request
     user_id = get_effective_user_id()
-    store = _tracker_store()
+    store = await _get_tracker_store()
     application = await asyncio.to_thread(store.get_application, user_id, application_id)
     if application is None:
         raise HTTPException(status_code=404, detail="Application was not found")
@@ -626,17 +634,17 @@ async def refresh_tracker_application(
     application_id: int,
     request: Request,
 ) -> TrackerRefreshResponse:
-    del request
     agent = _new_tracker_agent()
     try:
-        service = TrackerUpdateService(store=_tracker_store(), agent=agent)
+        service = TrackerUpdateService(store=(await _get_tracker_store()), agent=agent)
         try:
-            outcome = await service.refresh_one(get_effective_user_id(), application_id)
+            outcome = await until_disconnected(service.refresh_one(get_effective_user_id(), application_id), request)
         except ApplicationNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Application was not found") from exc
         return TrackerRefreshResponse.from_outcome(outcome)
     finally:
-        await agent.aclose()
+        with CancelScope(shield=True):
+            await agent.aclose()
 
 
 @router.post(
@@ -647,17 +655,22 @@ async def refresh_tracker_application(
 async def refresh_all_tracker_applications(request: Request) -> StreamingResponse:
     del request
     user_id = get_effective_user_id()
-    store = _tracker_store()
+    store = await _get_tracker_store()
 
     async def event_stream():
         agent = _new_tracker_agent()
         try:
             service = TrackerUpdateService(store=store, agent=agent)
-            async for event in service.stream_refresh_all(user_id):
-                payload = jsonable_encoder(asdict(event))
-                yield f"data: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
+            async with aclosing(keepalive_stream(service.stream_refresh_all(user_id))) as progress:
+                async for event in progress:
+                    if event is None:
+                        yield ": heartbeat\n\n"
+                        continue
+                    payload = jsonable_encoder(asdict(event))
+                    yield f"data: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
         finally:
-            await agent.aclose()
+            with CancelScope(shield=True):
+                await agent.aclose()
 
     return StreamingResponse(
         event_stream(),

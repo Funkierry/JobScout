@@ -24,6 +24,7 @@ from app.evidence.grounding import is_evidence_grounded as is_evidence_grounded 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_PAGE_CHARS = 50_000
+_NO_PREDICTION = object()
 
 STATUS_EXTRACTION_SYSTEM_PROMPT = """你是求职申请进度抽取器。只判断当前页面中可见申请的现状，不提供建议。
 
@@ -59,6 +60,8 @@ JSON 对象之间的证据不得交叉使用；confidence 字段仅为兼容保�
 class StructuredStatusModel(Protocol):
     def invoke(self, messages: list[SystemMessage | HumanMessage], **kwargs: Any) -> StatusExtraction | dict[str, Any]: ...
 
+    async def ainvoke(self, messages: list[SystemMessage | HumanMessage], **kwargs: Any) -> StatusExtraction | dict[str, Any]: ...
+
 
 class StatusExtractor:
     """Invoke a structured model and enforce verbatim evidence grounding."""
@@ -84,6 +87,35 @@ class StatusExtractor:
         callbacks: list[Any] | None = None,
         observations: list[SourceObservation] | tuple[SourceObservation, ...] = (),
     ) -> StatusRecord:
+        for text, sources, all_sources in self._source_groups(page_text, observations):
+            candidate = self._extract_source(application, text, previous=previous, checked_at=checked_at, callbacks=callbacks, sources=sources, all_sources=all_sources)
+            if self._enough_evidence(candidate):
+                return candidate
+        return candidate
+
+    async def aextract(self, application, page_text, *, previous=None, checked_at=None, callbacks=None, observations=()):
+        """Use cancellable model I/O and the same priority/grounding as offline extract."""
+        checked_at = checked_at or datetime.now(UTC)
+        if checked_at.tzinfo is None or checked_at.utcoffset() is None:
+            raise ValueError("checked_at must be timezone-aware")
+        for text, sources, all_sources in self._source_groups(page_text, observations):
+            bounded = text.strip()[: self._max_page_chars]
+            if not bounded:
+                candidate = self._failed_record(application, checked_at, previous)
+            else:
+                messages = [SystemMessage(content=STATUS_EXTRACTION_SYSTEM_PROMPT), HumanMessage(content=self._user_prompt(application, bounded))]
+                try:
+                    prediction = await self._model.ainvoke(messages, **({"config": {"callbacks": callbacks}} if callbacks else {}))
+                except Exception as exc:
+                    logger.warning("Application status extraction failed (%s)", type(exc).__name__)
+                    candidate = self._failed_record(application, checked_at, previous)
+                else:
+                    candidate = self._extract_source(application, text, previous=previous, checked_at=checked_at, sources=sources, all_sources=all_sources, prediction=prediction)
+            if self._enough_evidence(candidate):
+                return candidate
+        return candidate
+
+    def _source_groups(self, page_text, observations):
         dom = dom_observation(page_text, max_chars=self._max_page_chars)
         json_sources = []
         remaining = self._max_page_chars
@@ -93,15 +125,16 @@ class StatusExtractor:
                 remaining -= len(item.text) + 2
         all_sources = [*json_sources, dom]
         if json_sources:
-            candidate = self._extract_source(application, "\n\n".join(item.text for item in json_sources), previous=previous, checked_at=checked_at, callbacks=callbacks, sources=json_sources, all_sources=all_sources)
-            if candidate.check_result is CheckResult.SUCCESS and (
-                (candidate.discovered_applications and all(item.status is not ApplicationStatus.UNKNOWN and item.confidence >= 0.7 for item in candidate.discovered_applications))
-                or (candidate.status is not ApplicationStatus.UNKNOWN and candidate.confidence >= 0.7)
-            ):
-                return candidate
-            if not page_text.strip():
-                return candidate
-        return self._extract_source(application, page_text, previous=previous, checked_at=checked_at, callbacks=callbacks, sources=[dom], all_sources=all_sources)
+            yield "\n\n".join(item.text for item in json_sources), json_sources, all_sources
+        if page_text.strip() or not json_sources:
+            yield page_text, [dom], all_sources
+
+    @staticmethod
+    def _enough_evidence(candidate):
+        return candidate.check_result is CheckResult.SUCCESS and (
+            (candidate.discovered_applications and all(item.status is not ApplicationStatus.UNKNOWN and item.confidence >= 0.7 for item in candidate.discovered_applications))
+            or (candidate.status is not ApplicationStatus.UNKNOWN and candidate.confidence >= 0.7)
+        )
 
     def _extract_source(
         self,
@@ -113,6 +146,7 @@ class StatusExtractor:
         callbacks: list[Any] | None = None,
         sources: list[SourceObservation],
         all_sources: list[SourceObservation],
+        prediction: Any = _NO_PREDICTION,
     ) -> StatusRecord:
         checked_at = checked_at or datetime.now(UTC)
         if checked_at.tzinfo is None or checked_at.utcoffset() is None:
@@ -128,7 +162,9 @@ class StatusExtractor:
             HumanMessage(content=self._user_prompt(application, bounded_source)),
         ]
         try:
-            raw_result = self._model.invoke(messages, config={"callbacks": callbacks}) if callbacks else self._model.invoke(messages)
+            raw_result = prediction
+            if prediction is _NO_PREDICTION:
+                raw_result = self._model.invoke(messages, config={"callbacks": callbacks}) if callbacks else self._model.invoke(messages)
             extraction = raw_result if isinstance(raw_result, StatusExtraction) else StatusExtraction.model_validate(raw_result)
             raw_status = _ground_excerpt(bounded_source, extraction.raw_status)
             evidence = _ground_excerpt(bounded_source, extraction.evidence)

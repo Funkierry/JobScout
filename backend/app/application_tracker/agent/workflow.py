@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -12,6 +13,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Protocol, TypedDict
 from urllib.parse import urlsplit, urlunsplit
 
+from anyio import CancelScope
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -91,6 +93,7 @@ class WorkflowState(TypedDict, total=False):
 
 @dataclass(frozen=True, slots=True)
 class AgentRunConfig:
+    check_timeout_seconds: float = 180.0
     allow_model_fallback: bool = True
     confidence_threshold: float = 0.7
     max_agent_steps: int = 6
@@ -98,6 +101,8 @@ class AgentRunConfig:
     max_screenshot_bytes: int = 5_000_000
 
     def __post_init__(self) -> None:
+        if not math.isfinite(self.check_timeout_seconds) or self.check_timeout_seconds <= 0:
+            raise ValueError("check_timeout_seconds must be finite and positive")
         if not 0 <= self.confidence_threshold <= 1:
             raise ValueError("confidence_threshold must be between 0 and 1")
         if self.max_agent_steps <= 0:
@@ -108,6 +113,7 @@ class AgentRunConfig:
     @classmethod
     def from_env(cls) -> AgentRunConfig:
         return cls(
+            check_timeout_seconds=float(os.getenv("APPLICATION_TRACKER_CHECK_TIMEOUT_SECONDS", "180")),
             confidence_threshold=float(os.getenv("APPLICATION_TRACKER_CONFIDENCE_THRESHOLD", "0.7")),
             max_agent_steps=int(os.getenv("APPLICATION_TRACKER_MAX_AGENT_STEPS", "6")),
             max_page_chars=int(os.getenv("APPLICATION_TRACKER_MAX_PAGE_CHARS", "50000")),
@@ -195,13 +201,17 @@ class ApplicationTrackerAgent:
             toolbox=toolbox,
         )
         try:
-            final_state = await graph.ainvoke(
-                {"messages": [], "agent_steps": 0},
-                config={"recursion_limit": self._run_config.max_agent_steps * 3 + 8},
-            )
+            # Human login has its own visible allowance; batch checks never add it.
+            budget = self._run_config.check_timeout_seconds + (settings.login_timeout_seconds if settings.interactive_login else 0)
+            async with asyncio.timeout(budget):
+                final_state = await graph.ainvoke(
+                    {"messages": [], "agent_steps": 0},
+                    config={"recursion_limit": self._run_config.max_agent_steps * 3 + 8},
+                )
             return final_state["record"]
         finally:
-            await browser.close()
+            with CancelScope(shield=True):
+                await browser.close()
 
     async def aclose(self) -> None:
         close = getattr(self._browser_factory, "aclose", None)
@@ -252,8 +262,11 @@ class ApplicationTrackerAgent:
             if not self._run_config.allow_model_fallback:
                 return {"candidate": self._fallback_record(application, previous=previous, checked_at=checked_at, check_result=CheckResult.FETCH_FAILED)}
             await ensure_fallback()
-            candidate = await asyncio.to_thread(
-                fallback_extractor.extract,
+            extract_async = getattr(fallback_extractor, "aextract", None)
+            # Production uses native async model I/O so cancellation reaches it.
+            # Keep the sync protocol for existing offline/custom extractors.
+            invoke = extract_async if callable(extract_async) else lambda *args, **kwargs: asyncio.to_thread(fallback_extractor.extract, *args, **kwargs)
+            candidate = await invoke(
                 application,
                 state.get("page_text", ""),
                 previous=previous,

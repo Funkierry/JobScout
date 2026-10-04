@@ -613,6 +613,15 @@ textarea:focus {
 .thread-delete-btn:disabled { opacity: .35; cursor: not-allowed; }
 .thread-action-status { margin: 8px 12px; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .thread-action-status:empty { display: none; }
+.task-notices { flex-shrink: 0; }
+.task-notice { display: flex; align-items: center; gap: 8px; margin: 8px clamp(12px, 2.5vw, 36px); padding: 9px 12px; border: 1px solid #d5def3; border-radius: 6px; background: #f1f5ff; font-size: 12px; }
+.task-notice > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.task-notice button { flex-shrink: 0; min-height: 30px; padding: 4px 9px; border: 1px solid #cbd5ed; border-radius: 5px; color: var(--blue-dark); background: #fff; cursor: pointer; font-size: 12px; }
+.task-notice button:disabled { opacity: .5; cursor: wait; }
+@media (max-width: 760px) {
+  .task-notice { flex-wrap: wrap; }
+  .task-notice > span { flex-basis: 100%; }
+}
 .thread-delete-dialog { width: min(420px, calc(100vw - 32px)); padding: 24px; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; }
 .thread-delete-dialog::backdrop { background: #18233a80; }
 .thread-delete-dialog h2 { margin: 0 0 16px; font-size: 20px; }
