@@ -8,7 +8,7 @@ from pathlib import Path
 
 from app.application_tracker.evaluation import EvaluationCase
 from app.application_tracker.models import ApplicationStatus
-from app.application_tracker.observations import json_observations
+from app.application_tracker.observations import captured_json_responses, json_observations
 
 
 def case_from_snapshot(
@@ -32,6 +32,7 @@ def case_from_snapshot(
         url=metadata["final_url"],
         page_text=body_text,
         observations=json_observations(json.loads((snapshot_dir / "responses.json").read_text(encoding="utf-8")), page_url=metadata["final_url"]) if (snapshot_dir / "responses.json").exists() else [],
+        json_responses=captured_json_responses(json.loads((snapshot_dir / "responses.json").read_text(encoding="utf-8")), page_url=metadata["final_url"]) if (snapshot_dir / "responses.json").exists() else [],
         expected_status=expected_status,
         expected_role=expected_role,
         expected_applied_at=expected_applied_at,
@@ -77,12 +78,14 @@ def attach_snapshot_observations(cases: list[EvaluationCase], snapshot_root: Pat
     for case in cases:
         key = (hashlib.sha256(case.page_text.encode()).hexdigest(), sanitize_url(case.url))
         matches = snapshots.get(key, [])
-        if not case.observations and len(matches) > 1:
+        if (not case.observations or not case.json_responses) and len(matches) > 1:
             raise ValueError("Ambiguous snapshot match; explicitly label a single capture before replay")
-        if not case.observations and matches:
+        if (not case.observations or not case.json_responses) and matches:
             path = matches[0] / "responses.json"
             if path.exists() and path.stat().st_size <= 26_000_000 and path.resolve().is_relative_to(snapshot_root.resolve()):
-                observations = json_observations(json.loads(path.read_text(encoding="utf-8")), page_url=case.url)
-                case = case.model_copy(update={"observations": observations})
+                responses = json.loads(path.read_text(encoding="utf-8"))
+                observations = case.observations or json_observations(responses, page_url=case.url)
+                captured = case.json_responses or captured_json_responses(responses, page_url=case.url)
+                case = case.model_copy(update={"observations": observations, "json_responses": captured})
         result.append(case)
     return result

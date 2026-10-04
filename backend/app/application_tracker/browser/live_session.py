@@ -26,7 +26,7 @@ from app.application_tracker.browser.playwright_adapter import (
 )
 from app.application_tracker.browser.profiles import profile_directory, shared_profile_lock
 from app.application_tracker.models import CheckResult
-from app.application_tracker.observations import JsonCollector, SourceObservation, json_observations
+from app.application_tracker.observations import CapturedJsonResponse, JsonCollector, SourceObservation, captured_json_responses, json_observations
 
 EventHandler = Callable[[BrowserEvent], Awaitable[None] | None]
 
@@ -46,6 +46,8 @@ class AgentBrowser(Protocol):
     async def get_page_text(self) -> str: ...
 
     async def get_observations(self) -> tuple[SourceObservation, ...]: ...
+
+    async def get_json_responses(self) -> tuple[CapturedJsonResponse, ...]: ...
 
     async def get_interactive_elements(self) -> list[InteractiveElement]: ...
 
@@ -133,6 +135,12 @@ class PersistentAgentBrowser:
             return ()
         await self._collector.drain()
         return tuple(json_observations(self._collector.responses, page_url=self._url))
+
+    async def get_json_responses(self) -> tuple[CapturedJsonResponse, ...]:
+        if self._collector is None:
+            return ()
+        await self._collector.drain()
+        return tuple(captured_json_responses(self._collector.responses, page_url=self._url))
 
     async def get_interactive_elements(self) -> list[InteractiveElement]:
         page = self._require_page()
@@ -316,6 +324,7 @@ class PersistentAgentBrowser:
         return BrowserAccessResult(
             page_text=await self.get_page_text(),
             observations=await self.get_observations(),
+            json_responses=await self.get_json_responses(),
             check_result=CheckResult.SUCCESS,
             login_state=LoginState.AUTHENTICATED,
             login_attempted=login_attempted,

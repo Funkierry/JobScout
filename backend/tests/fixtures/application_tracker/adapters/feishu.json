@@ -1,0 +1,11 @@
+{
+  "url": "https://jobs.bytedance.com/api/v1/search/user/applications",
+  "status": 200,
+  "body": {
+    "code": 0,
+    "data": {"delivery_list": [
+      {"job_post_info": {"title": "示例开发岗位"}, "current_stage": {"stage_id": 0}},
+      {"job_post_info": {"title": "示例测试岗位"}, "current_stage": {"stage_id": 1}}
+    ]}
+  }
+}

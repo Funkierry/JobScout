@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.application_tracker.observations import SourceObservation
+from app.application_tracker.observations import CapturedJsonResponse, SourceObservation
 
 
 class ApplicationStatus(StrEnum):
@@ -83,6 +83,7 @@ class OfflineExtractionCase(ApplicationInput):
     case_id: str = Field(min_length=1, max_length=200)
     page_text: str = Field(max_length=500_000)
     observations: list[SourceObservation] = Field(default_factory=list, max_length=100)
+    json_responses: list[CapturedJsonResponse] = Field(default_factory=list, max_length=20)
 
 
 class StatusExtraction(BaseModel):

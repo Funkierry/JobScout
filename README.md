@@ -36,6 +36,8 @@
 
 投递追踪已接入同站 JSON 优先观察、正文稳定等待、规则置信度和按站点限量并发。单条检查复用可见浏览器完成登录；批量检查遇到失效登录会标记“需登录”。配置与离线对照方法见 [Tracker 稳定性说明](docs/jobscout/tracker-stability.md)。
 
+阶段 5 增加飞书/字节同结构、腾讯和小红书的只读 ATS 适配器：命中已验证接口与状态码时直接解析，模型在需要回退时才初始化。未知代码与不完整列表保留原有模型回退。支持范围及无模型回放命令见 [ATS 适配器说明](docs/jobscout/ats-adapters.md)，覆盖率和限制见 [实际指标](docs/jobscout/metrics.md#阶段-5ats-确定性适配器2026-10-04)。
+
 阶段 3 增加主 Agent 之前的入口分类、持久化目标锚点与模式工具白名单。JobScout 页面使用专属入口；部署时设置 `JOBSCOUT_ENFORCE_THREAD_BINDING=1`，保证已绑定线程不能切回通用 Agent 绕过分类。可选的便宜分类模型由 `JOBSCOUT_INTENT_MODEL` 指定，未配置时模糊请求直接澄清。详见 [入口与路由说明](docs/jobscout/entry-routing.md)。
 
 ## ✨ 为什么是 JobScout

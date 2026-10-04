@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from statistics import mean
 from time import perf_counter
 from typing import Protocol
@@ -11,6 +12,7 @@ from typing import Protocol
 from langchain_core.callbacks import BaseCallbackHandler
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.application_tracker.adapters import try_adapters
 from app.application_tracker.extractor import StatusExtractor, is_evidence_grounded
 from app.application_tracker.models import ApplicationInput, ApplicationStatus, CheckResult, OfflineExtractionCase, StatusRecord
 
@@ -41,6 +43,18 @@ class EvaluationCaseResult(BaseModel):
     cost_usd: float | None = Field(default=None, ge=0)
     record: StatusRecord | None = None
     error: str | None = Field(default=None, max_length=500)
+    adapter: str | None = None
+    adapter_fallback: str | None = None
+
+
+class AdapterMetrics(BaseModel):
+    """Accuracy denominator is accepted cases; coverage denominator is all cases."""
+
+    accepted: int
+    coverage: float
+    status_accuracy: float | None
+    fallback_reasons: dict[str, int]
+    by_adapter: dict[str, dict[str, int | float | None]]
 
 
 class EvaluationReport(BaseModel):
@@ -68,6 +82,7 @@ class EvaluationReport(BaseModel):
     role_accuracy: float | None = None
     applied_at_accuracy: float | None = None
     results: list[EvaluationCaseResult]
+    adapter_metrics: AdapterMetrics | None = None
 
 
 class Extractor(Protocol):
@@ -112,11 +127,14 @@ class TokenUsageCollector(BaseCallbackHandler):
 
 def evaluate_cases(
     cases: list[EvaluationCase],
-    extractor: Extractor,
+    extractor: Extractor | None = None,
     *,
+    adapters_only: bool = False,
     input_usd_per_million: float | None = None,
     output_usd_per_million: float | None = None,
 ) -> EvaluationReport:
+    if not adapters_only and extractor is None:
+        raise ValueError("An extractor is required unless adapters_only=True")
     if (input_usd_per_million is None) != (output_usd_per_million is None):
         raise ValueError("Both input and output token prices must be supplied together")
     if input_usd_per_million is not None and (input_usd_per_million < 0 or output_usd_per_million < 0):
@@ -126,8 +144,16 @@ def evaluate_cases(
         application = ApplicationInput.model_validate(case.model_dump(include=set(ApplicationInput.model_fields)))
         collector = TokenUsageCollector()
         started = perf_counter()
+        decision = None
         try:
-            if isinstance(extractor, StatusExtractor):
+            if adapters_only:
+                now = datetime.now(UTC)
+                decision = try_adapters(application, case.json_responses, checked_at=now)
+                # Missing adapter coverage is unknown here. Production alone invokes fallback.
+                extracted = decision.record or StatusRecord(
+                    company=application.company, role=application.role, url=application.url, status=ApplicationStatus.UNKNOWN, confidence=0, checked_at=now, changed_at=now, check_result=CheckResult.SUCCESS
+                )
+            elif isinstance(extractor, StatusExtractor):
                 extracted = extractor.extract(application, case.page_text, callbacks=[collector], observations=case.observations)
             else:
                 extracted = extractor.extract(application, case.page_text)
@@ -137,7 +163,7 @@ def evaluate_cases(
         except Exception as exc:
             record = None
             schema_valid = False
-            error = f"{type(exc).__name__}: {exc}"[:500]
+            error = type(exc).__name__  # Validation errors may contain private snapshot data.
         elapsed_ms = (perf_counter() - started) * 1000
 
         selected_application = None
@@ -154,10 +180,15 @@ def evaluate_cases(
             predicted_status = record.status
             evidence = record.evidence
         allow_empty = predicted_status is ApplicationStatus.UNKNOWN
-        grounded = bool(record) and any(is_evidence_grounded(text, evidence, allow_empty=allow_empty) for text in [case.page_text, *(item.text for item in case.observations)])
+        source_texts = [case.page_text, *(item.text for item in case.observations)]
+        if adapters_only:
+            source_texts.extend(item.evidence_text() for item in case.json_responses)
+        grounded = bool(record) and any(is_evidence_grounded(text, evidence, allow_empty=allow_empty) for text in source_texts)
         evidence_eligible = bool(record) and (predicted_status is not ApplicationStatus.UNKNOWN or bool(evidence))
         usage = collector.usage if collector.usage.calls_with_usage else None
-        cost = None
+        if adapters_only:
+            usage = TokenUsage()  # This branch has no model call or fallback invocation.
+        cost = 0.0 if adapters_only else None
         if usage is not None and input_usd_per_million is not None:
             cost = (usage.input_tokens * input_usd_per_million + usage.output_tokens * output_usd_per_million) / 1_000_000
         role_correct = None
@@ -192,6 +223,8 @@ def evaluate_cases(
                 cost_usd=cost,
                 record=record,
                 error=error,
+                adapter=decision.adapter if decision else None,
+                adapter_fallback=decision.reason if decision else None,
             )
         )
 
@@ -207,6 +240,27 @@ def evaluate_cases(
     role_results = [result.role_correct for result in results if result.role_correct is not None]
     date_results = [result.applied_at_correct for result in results if result.applied_at_correct is not None]
     denominator = total or 1
+    adapter_metrics = None
+    if adapters_only:
+        accepted = [result for result in results if result.adapter and not result.adapter_fallback and result.schema_valid]
+        by_adapter = {}
+        for name in sorted({result.adapter for result in results if result.adapter}):
+            selected = [result for result in results if result.adapter == name]
+            hits = [result for result in accepted if result.adapter == name]
+            by_adapter[name] = {
+                "total": len(selected),
+                "accepted": len(hits),
+                "correct": sum(result.status_correct for result in hits),
+                "coverage": len(hits) / len(selected),
+                "status_accuracy": sum(result.status_correct for result in hits) / len(hits) if hits else None,
+            }
+        adapter_metrics = AdapterMetrics(
+            accepted=len(accepted),
+            coverage=len(accepted) / denominator,
+            status_accuracy=sum(result.status_correct for result in accepted) / len(accepted) if accepted else None,
+            fallback_reasons=dict(Counter(result.adapter_fallback or "adapter_error" for result in results if result not in accepted)),
+            by_adapter=by_adapter,
+        )
     return EvaluationReport(
         total=total,
         schema_valid=schema_valid_count,
@@ -226,8 +280,9 @@ def evaluate_cases(
         token_coverage=sum(result.input_tokens is not None for result in results) / denominator,
         total_input_tokens=sum(result.input_tokens for result in results if result.input_tokens is not None) if usage_complete else None,
         total_output_tokens=sum(result.output_tokens for result in results if result.output_tokens is not None) if usage_complete else None,
-        total_cost_usd=sum(result.cost_usd for result in results if result.cost_usd is not None) if usage_complete and input_usd_per_million is not None else None,
+        total_cost_usd=sum(result.cost_usd for result in results if result.cost_usd is not None) if usage_complete and (adapters_only or input_usd_per_million is not None) else None,
         role_accuracy=sum(role_results) / len(role_results) if role_results else None,
         applied_at_accuracy=sum(date_results) / len(date_results) if date_results else None,
         results=results,
+        adapter_metrics=adapter_metrics,
     )

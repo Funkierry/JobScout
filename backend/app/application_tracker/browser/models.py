@@ -8,7 +8,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from app.application_tracker.models import CheckResult
-from app.application_tracker.observations import SourceObservation
+from app.application_tracker.observations import CapturedJsonResponse, SourceObservation
 from deerflow.config.paths import get_paths, resolve_path
 
 
@@ -50,6 +50,7 @@ class BrowserAccessResult:
     login_attempted: bool = False
     error_code: str | None = None
     observations: tuple[SourceObservation, ...] = ()
+    json_responses: tuple[CapturedJsonResponse, ...] = ()
 
 
 def _env_float(name: str, default: float) -> float:

@@ -21,7 +21,7 @@ from app.application_tracker.models import (
     StatusExtraction,
     StatusRecord,
 )
-from app.application_tracker.observations import SourceObservation, dom_observation
+from app.application_tracker.observations import CapturedJsonResponse, SourceObservation, dom_observation
 from app.evidence.grounding import ground_excerpt
 
 _DESTRUCTIVE_CLICK_MARKERS = (
@@ -105,6 +105,7 @@ class ApplicationTrackerToolbox:
         self.max_screenshot_bytes = max_screenshot_bytes
         self.page_text = ""
         self.observations: tuple[SourceObservation, ...] = ()
+        self.json_responses: tuple[CapturedJsonResponse, ...] = ()
         self.record: StatusRecord | None = None
         self.last_access: BrowserAccessResult | None = None
         self.screenshot_seen = False
@@ -116,6 +117,7 @@ class ApplicationTrackerToolbox:
         self.last_access = await self.browser.open_page()
         self.page_text = self.last_access.page_text[: self.max_page_chars]
         self.observations = self.last_access.observations
+        self.json_responses = self.last_access.json_responses
         self.screenshot_seen = False
         return await self._page_payload(action="opened")
 
@@ -164,6 +166,7 @@ class ApplicationTrackerToolbox:
         self.last_access = await self.browser.request_human_login()
         self.page_text = self.last_access.page_text[: self.max_page_chars]
         self.observations = self.last_access.observations
+        self.json_responses = self.last_access.json_responses
         self.screenshot_seen = False
         return await self._page_payload(action="human_login_finished")
 
@@ -238,6 +241,8 @@ class ApplicationTrackerToolbox:
     async def _read_observations(self) -> None:
         observe = getattr(self.browser, "get_observations", None)
         self.observations = tuple(await observe()) if observe is not None else ()
+        capture = getattr(self.browser, "get_json_responses", None)
+        self.json_responses = tuple(await capture()) if capture is not None else ()
 
     def extraction_kwargs(self) -> dict[str, Any]:
         return {"observations": self.observations} if self.observations else {}

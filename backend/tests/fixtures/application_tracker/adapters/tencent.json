@@ -1,0 +1,14 @@
+{
+  "url": "https://join.qq.com/api/v1/apply/getApplyProcess",
+  "status": 200,
+  "body": {
+    "status": 0,
+    "data": {
+      "currentStatus": {"status": 2, "applyProcessType": 4},
+      "positionInfo": {"applyPositionTxt": "示例开发岗位", "interviewPositionTxt": null},
+      "campusRecruitOne": {"itemList": [
+        {"stepId": 1, "status": 1}, {"stepId": 5, "status": 1}, {"stepId": 101, "status": 1}
+      ]}
+    }
+  }
+}

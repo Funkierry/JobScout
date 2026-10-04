@@ -58,6 +58,8 @@ def test_replay_attaches_json_without_mutating_labels_or_using_expected_status(t
     (snapshot / "responses.json").write_text(json.dumps([{"url": "https://jobs.example/api", "status": 200, "body": {"role": "产品经理", "status": "已投递"}}]), encoding="utf-8")
     attached = attach_snapshot_observations([case], tmp_path)
     assert not case.observations and len(attached[0].observations) == 1
+    assert not case.json_responses and len(attached[0].json_responses) == 1
+    assert "expected_status" not in attached[0].json_responses[0].model_dump_json()
     assert "expected_status" not in attached[0].observations[0].text
     # Duplicate captures must not be chosen arbitrarily.
     second = tmp_path / "snapshot-2"

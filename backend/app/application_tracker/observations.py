@@ -8,7 +8,7 @@ import re
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 from app.application_tracker.redaction import redact_json, sanitize_url
 
@@ -18,6 +18,49 @@ class SourceObservation(BaseModel):
     kind: Literal["json", "dom"]
     text: str = Field(max_length=50_000)
     url: str = Field(default="", max_length=2048)
+
+
+class CapturedJsonResponse(BaseModel):
+    """Private, bounded adapter input. Never included in model tool payloads."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    url: str = Field(max_length=2048)
+    status: int = Field(strict=True, ge=100, le=599)
+    body: JsonValue = None
+    truncated: bool = False
+
+    @field_validator("body")
+    @classmethod
+    def bound_body(cls, value):
+        if len(json.dumps(value, ensure_ascii=False).encode("utf-8")) > 256_000:
+            raise ValueError("adapter JSON exceeds byte limit")
+        return redact_json(value)
+
+    @field_validator("url")
+    @classmethod
+    def redact_url(cls, value):
+        return sanitize_url(value)
+
+    def evidence_text(self) -> str:
+        return json.dumps(self.body, ensure_ascii=False)
+
+
+def captured_json_responses(responses: list[dict[str, Any]], *, page_url: str) -> list[CapturedJsonResponse]:
+    """Keep response order and failures; never fall back to an earlier success."""
+    captured = []
+    for response in responses[:20]:
+        if not same_host(str(response.get("url", "")), page_url):
+            continue
+        payload = {key: response[key] for key in ("url", "status", "body", "truncated") if key in response}
+        try:
+            captured.append(CapturedJsonResponse.model_validate(payload))
+        except (ValueError, TypeError, RecursionError):
+            # A failed/oversized latest response must invalidate earlier evidence.
+            try:
+                captured.append(CapturedJsonResponse(url=response["url"], status=response["status"], truncated=True))
+            except (ValueError, TypeError, KeyError):
+                continue
+    return captured
 
 
 async def read_json_response(response: Any, *, max_json_bytes: int = 256_000) -> dict[str, Any]:
@@ -63,7 +106,7 @@ class JsonCollector:
     def on_response(self, response: Any) -> None:
         if self._closed or len(self._tasks) >= self.max_responses:
             return
-        if not same_host(response.url, self.page_url) or not 200 <= response.status < 300:
+        if not same_host(response.url, self.page_url):
             return
         if response.request.resource_type not in {"xhr", "fetch"} or "json" not in response.headers.get("content-type", "").lower():
             return

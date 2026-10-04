@@ -1,0 +1,16 @@
+{
+  "url": "https://job.xiaohongshu.com/websiterecruit/apply/record/list",
+  "status": 200,
+  "body": {
+    "statusCode": 200, "errorCode": 200, "success": true,
+    "data": [{
+      "positionName": "示例开发岗位", "status": "end", "statusGroup": "finished",
+      "applyTime": "2026-01-10 12:00:00",
+      "steps": [
+        {"stepCode": "apply", "stepStatus": "done"},
+        {"stepCode": "resume_choose", "stepStatus": "done"},
+        {"stepCode": "terminal", "stepStatus": "done"}
+      ]
+    }]
+  }
+}

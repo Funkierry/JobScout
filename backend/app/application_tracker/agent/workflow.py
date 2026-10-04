@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Annotated, Any, Protocol, TypedDict
@@ -21,6 +22,7 @@ from langchain_core.messages import (
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
+from app.application_tracker.adapters import try_adapters
 from app.application_tracker.agent.tools import (
     ApplicationTrackerToolbox,
     ScreenshotObservation,
@@ -118,13 +120,17 @@ class ApplicationTrackerAgent:
     def __init__(
         self,
         *,
-        model: ToolCallingModel,
-        extractor: ExtractorLike,
+        model: ToolCallingModel | None = None,
+        extractor: ExtractorLike | None = None,
+        model_factory: Callable[[], tuple[ToolCallingModel, ExtractorLike]] | None = None,
         browser_factory: AgentBrowserFactory | None = None,
         run_config: AgentRunConfig | None = None,
     ) -> None:
+        if (model is None or extractor is None) and model_factory is None:
+            raise ValueError("Provide a model/extractor pair or a lazy factory")
         self._model = model
         self._extractor = extractor
+        self._model_factory = model_factory
         self._browser_factory = browser_factory or PersistentAgentBrowserFactory()
         self._run_config = run_config or AgentRunConfig.from_env()
 
@@ -136,13 +142,16 @@ class ApplicationTrackerAgent:
         browser_factory: AgentBrowserFactory | None = None,
         run_config: AgentRunConfig | None = None,
     ) -> ApplicationTrackerAgent:
-        from deerflow.models import create_chat_model
-
         resolved_name = model_name or os.getenv("APPLICATION_TRACKER_AGENT_MODEL") or None
-        model = create_chat_model(name=resolved_name, thinking_enabled=False)
+
+        def create_fallback():
+            from deerflow.models import create_chat_model
+
+            model = create_chat_model(name=resolved_name, thinking_enabled=False)
+            return model, StatusExtractor.from_chat_model(model)
+
         return cls(
-            model=model,
-            extractor=StatusExtractor.from_chat_model(model),
+            model_factory=create_fallback,
             browser_factory=browser_factory,
             run_config=run_config,
         )
@@ -208,7 +217,14 @@ class ApplicationTrackerAgent:
     ) -> Any:
         tools = toolbox.tools
         tools_by_name = tool_by_name(tools)
-        agent_model = self._model.bind_tools(tools)
+        # Per-run state prevents lazy initialization/tool binding races in batches.
+        fallback_model, fallback_extractor = self._model, self._extractor
+        agent_model = None
+
+        async def ensure_fallback():
+            nonlocal fallback_model, fallback_extractor
+            if fallback_model is None or fallback_extractor is None:
+                fallback_model, fallback_extractor = await asyncio.to_thread(self._model_factory)
 
         async def open_page(_: WorkflowState) -> WorkflowState:
             payload = await toolbox.open_page()
@@ -223,13 +239,18 @@ class ApplicationTrackerAgent:
             access = toolbox.last_access
             if access is None or access.check_result is not CheckResult.SUCCESS:
                 return "finalize"
-            if bool(state.get("page_text", "").strip()) or toolbox.observations:
+            if bool(state.get("page_text", "").strip()) or toolbox.observations or toolbox.json_responses:
                 return "extract"
             return "prepare_agent"
 
         async def extract(state: WorkflowState) -> WorkflowState:
+            decision = try_adapters(application, toolbox.json_responses, previous=previous, checked_at=checked_at)
+            if decision.record is not None:
+                toolbox.accept_fast_path_record(decision.record)
+                return {"candidate": decision.record, "record": decision.record}
+            await ensure_fallback()
             candidate = await asyncio.to_thread(
-                self._extractor.extract,
+                fallback_extractor.extract,
                 application,
                 state.get("page_text", ""),
                 previous=previous,
@@ -258,7 +279,7 @@ class ApplicationTrackerAgent:
             return {"navigated": False, "page_text": toolbox.page_text}
 
         def route_after_navigation(state: WorkflowState) -> str:
-            return "extract" if state.get("navigated") and state.get("page_text", "").strip() else "prepare_agent"
+            return "extract" if state.get("navigated") and (state.get("page_text", "").strip() or toolbox.observations or toolbox.json_responses) else "prepare_agent"
 
         async def prepare_agent(state: WorkflowState) -> WorkflowState:
             payload = state.get("browser_payload") or await toolbox.get_page_text()
@@ -300,6 +321,10 @@ class ApplicationTrackerAgent:
             return {"messages": [HumanMessage(content=content)]}
 
         async def call_agent(state: WorkflowState) -> WorkflowState:
+            nonlocal agent_model
+            await ensure_fallback()
+            if agent_model is None:
+                agent_model = fallback_model.bind_tools(tools)
             response = await agent_model.ainvoke([SystemMessage(content=AGENT_SYSTEM_PROMPT), *state.get("messages", [])])
             return {
                 "messages": [response],
@@ -378,23 +403,12 @@ class ApplicationTrackerAgent:
                 return "finalize"
             if state.get("agent_steps", 0) >= self._run_config.max_agent_steps:
                 return "finalize"
-            if state.get("clicked") and state.get("page_text", "").strip():
+            if state.get("clicked") and (state.get("page_text", "").strip() or toolbox.observations or toolbox.json_responses):
                 return "extract_clicked_page"
             return "call_agent"
 
         async def extract_clicked_page(state: WorkflowState) -> WorkflowState:
-            candidate = await asyncio.to_thread(
-                self._extractor.extract,
-                application,
-                state.get("page_text", ""),
-                previous=previous,
-                checked_at=checked_at,
-                **toolbox.extraction_kwargs(),
-            )
-            if self._accept_fast_path(candidate):
-                toolbox.accept_fast_path_record(candidate)
-                return {"candidate": candidate, "record": candidate}
-            return {"candidate": candidate}
+            return await extract(state)
 
         def route_after_clicked_extraction(state: WorkflowState) -> str:
             return "finalize" if state.get("record") is not None else "call_agent"
