@@ -4,8 +4,9 @@ JobScout Web is a build-free browser client for the DeerFlow Gateway. It keeps
 the interaction in a chat thread, uploads resumes with DeerFlow's native file
 metadata shape, force-activates the `/jobscout` skill on every turn, and renders
 the final evidence-backed report inline with print and Markdown download actions.
-The header switches between public-source interview preparation and private
-Feishu Base resume matching. The progress tracker is a third workspace section.
+The workspace combines application progress, public-source interview preparation,
+and private Feishu Base resume matching. See the [guardrails](../docs/jobscout/guardrails.md)
+for code-enforced boundaries and the [metrics](../docs/jobscout/metrics.md) for measured results.
 
 ## Linked target roles
 
@@ -103,9 +104,9 @@ and `scripts/run-jobscout-web-local.cmd` for starting the two local services.
 A complete request needs a company, a searchable role direction, and one of
 校招/社招/实习. Optional JD, resume, city, business line, and technology stack
 never block research. The skill starts three research tasks in parallel and the
-final report contains company research, role analysis, and two non-empty
-interview-question tables; resume gap analysis appears only when a readable
-resume is attached.
+final report contains company research, role analysis, evidence-backed questions,
+and an evidence-boundary section. There is no question quota; missing evidence
+may leave a section empty. Resume gap analysis requires readable source evidence.
 
 The UI accepts both semantic Markdown headings and numbered model output. Before
 display, print, or download, it removes known unsolicited top-level coaching
@@ -120,23 +121,25 @@ candidate profile, ranked roles, matching evidence, and data-boundary sections.
 
 ## Test
 
-```powershell
-node test_pure.js
-cd ..\.claude\skills\jobscout-web-e2e
-node drive.js
-```
-
-The browser test uses a deterministic SSE fixture by default, so it exercises
-the real auth/thread/render/print/download path without model or search cost.
-An explicit live research pass is available when needed:
+From the repository root:
 
 ```powershell
-$env:JOBSCOUT_REAL_RESEARCH='1'; node drive.js
+node jobscout-web/test_pure.js
+backend/.venv/Scripts/python.exe -B -m unittest discover -s skills/public/jobscout/scripts -p "test_*.py"
 ```
 
-Live mode is costly and checks the 8+4 question minimum, per-row clickable
-sources, at least three independent source hosts, exactly three `task` calls,
-and zero `ask_clarification` calls.
+These checks use fixture/mock data. Real research is a separate, user-initiated
+operation that can incur model and search costs; see the explicit baseline
+commands and unrun metrics in [metrics.md](../docs/jobscout/metrics.md).
+
+## Mail and scheduled refresh
+
+**招聘邮件** displays grounded events and their source; it remains disabled until
+local read-only credentials and sender-domain filters are configured.
+**定时刷新** stores per-user frequency, daily limits and optional model fallback.
+**通知** lists confirmed before/after status changes with source excerpts and
+owner-scoped read state. See [mail](../docs/jobscout/mail-channel.md) and
+[scheduling](../docs/jobscout/scheduled-refresh.md) for defaults and activation.
 
 ## Feishu / Lark connection
 
