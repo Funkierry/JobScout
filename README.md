@@ -1,5 +1,7 @@
 <h1 align="center">🧭 JobScout</h1>
 
+阶段 7 已加入 [定时刷新与站内通知](docs/jobscout/scheduled-refresh.md)：复用 DeerFlow scheduler，按用户设置刷新频率与每日额度；仅在已确认的状态变化时通知。默认关闭，定时检查的模型回退也默认关闭。
+
 <p align="center">
   <strong>把零散的求职信息，整理成清晰、可信、可执行的下一步。</strong>
 </p>

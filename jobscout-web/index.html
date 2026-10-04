@@ -221,6 +221,8 @@
           <button id="trackerAddToggle" type="button" class="secondary-btn" aria-controls="trackerAddForm" aria-expanded="true">收起添加</button>
           <button id="trackerStagesBtn" type="button" class="secondary-btn">管理环节</button>
           <button id="trackerMailBtn" type="button" class="secondary-btn">招聘邮件</button>
+          <button id="trackerScheduleBtn" type="button" class="secondary-btn">定时刷新</button>
+          <button id="trackerNotificationsBtn" type="button" class="secondary-btn">通知<span id="trackerUnreadCount" class="tracker-unread hidden"></span></button>
           <button id="trackerExportBtn" type="button" class="secondary-btn">导出 CSV</button>
           <button id="trackerRefreshAllBtn" type="button" class="primary-btn">更新全部</button>
         </div>
@@ -275,6 +277,25 @@
         <div id="trackerMailEvents" class="tracker-mail-events"></div>
       </dialog>
       <p id="trackerError" class="tracker-error hidden" role="alert"></p>
+
+      <dialog id="trackerScheduleDialog" class="tracker-result-dialog" aria-labelledby="trackerScheduleTitle">
+        <div class="tracker-result-head"><h3 id="trackerScheduleTitle">定时刷新</h3><button id="trackerScheduleClose" type="button" class="secondary-btn">关闭</button></div>
+        <p id="trackerScheduleStatus" role="status"></p>
+        <form id="trackerScheduleForm" class="tracker-schedule-form">
+          <label class="tracker-check"><input id="trackerScheduleEnabled" type="checkbox" />开启自动检查非终态投递</label>
+          <label>刷新间隔（分钟）<input id="trackerScheduleInterval" type="number" min="60" max="10080" value="360" required /></label>
+          <label>每日最多检查次数<input id="trackerScheduleLimit" type="number" min="1" max="100" value="30" required /></label>
+          <label>额度重置时区<select id="trackerScheduleTimezone"><option value="Asia/Shanghai">北京时间</option><option value="Australia/Sydney">悉尼时间</option><option value="UTC">UTC</option></select></label>
+          <label class="tracker-check"><input id="trackerScheduleModel" type="checkbox" />允许模型回退（可能产生费用）</label>
+          <p class="field-hint">默认只使用确定性解析。登录失效时停止该次检查，不会自动操作登录或投递。失败检查也计入每日额度。</p>
+          <button id="trackerScheduleSave" type="submit" class="primary-btn">保存设置</button>
+        </form>
+      </dialog>
+      <dialog id="trackerNotificationsDialog" class="tracker-result-dialog" aria-labelledby="trackerNotificationsTitle">
+        <div class="tracker-result-head"><h3 id="trackerNotificationsTitle">进度通知</h3><button id="trackerNotificationsClose" type="button" class="secondary-btn">关闭</button></div>
+        <p id="trackerNotificationsStatus" role="status"></p>
+        <div id="trackerNotificationsList" class="tracker-mail-events"></div>
+      </dialog>
 
       <div id="trackerEmpty" class="tracker-empty hidden">
         <strong>还没有投递记录</strong>

@@ -91,6 +91,7 @@ class WorkflowState(TypedDict, total=False):
 
 @dataclass(frozen=True, slots=True)
 class AgentRunConfig:
+    allow_model_fallback: bool = True
     confidence_threshold: float = 0.7
     max_agent_steps: int = 6
     max_page_chars: int = 50_000
@@ -241,13 +242,15 @@ class ApplicationTrackerAgent:
                 return "finalize"
             if bool(state.get("page_text", "").strip()) or toolbox.observations or toolbox.json_responses:
                 return "extract"
-            return "prepare_agent"
+            return "prepare_agent" if self._run_config.allow_model_fallback else "finalize"
 
         async def extract(state: WorkflowState) -> WorkflowState:
             decision = try_adapters(application, toolbox.json_responses, previous=previous, checked_at=checked_at)
             if decision.record is not None:
                 toolbox.accept_fast_path_record(decision.record)
                 return {"candidate": decision.record, "record": decision.record}
+            if not self._run_config.allow_model_fallback:
+                return {"candidate": self._fallback_record(application, previous=previous, checked_at=checked_at, check_result=CheckResult.FETCH_FAILED)}
             await ensure_fallback()
             candidate = await asyncio.to_thread(
                 fallback_extractor.extract,
@@ -265,7 +268,7 @@ class ApplicationTrackerAgent:
         def route_after_extract(state: WorkflowState) -> str:
             if state.get("record") is not None:
                 return "finalize"
-            return "prepare_agent" if state.get("navigated") else "navigate_listing"
+            return ("prepare_agent" if self._run_config.allow_model_fallback else "finalize") if state.get("navigated") else "navigate_listing"
 
         async def navigate_listing(_: WorkflowState) -> WorkflowState:
             try:
@@ -279,7 +282,7 @@ class ApplicationTrackerAgent:
             return {"navigated": False, "page_text": toolbox.page_text}
 
         def route_after_navigation(state: WorkflowState) -> str:
-            return "extract" if state.get("navigated") and (state.get("page_text", "").strip() or toolbox.observations or toolbox.json_responses) else "prepare_agent"
+            return "extract" if state.get("navigated") and (state.get("page_text", "").strip() or toolbox.observations or toolbox.json_responses) else ("prepare_agent" if self._run_config.allow_model_fallback else "finalize")
 
         async def prepare_agent(state: WorkflowState) -> WorkflowState:
             payload = state.get("browser_payload") or await toolbox.get_page_text()
@@ -447,7 +450,7 @@ class ApplicationTrackerAgent:
         builder.add_conditional_edges(
             "navigate_listing",
             route_after_navigation,
-            {"extract": "extract", "prepare_agent": "prepare_agent"},
+            {"extract": "extract", "prepare_agent": "prepare_agent", "finalize": "finalize"},
         )
         builder.add_edge("prepare_agent", "call_agent")
         builder.add_conditional_edges(

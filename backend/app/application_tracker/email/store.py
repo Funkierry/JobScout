@@ -34,14 +34,27 @@ class MailStore:
             raise ValueError("Known mail events need evidence")
         fingerprint = sha256(f"{message.provider}\n{message.message_id}".encode()).hexdigest()
         with self.tracker._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            previous = None
             if event.application_id is not None:
-                row = connection.execute("SELECT company,role FROM applications WHERE user_id=? AND id=?", (user_id, event.application_id)).fetchone()
+                row = connection.execute("SELECT * FROM applications WHERE user_id=? AND id=?", (user_id, event.application_id)).fetchone()
                 if row is None or row["company"] != event.company or row["role"] != event.role or not all(is_evidence_grounded(source, text) for text in (event.company, event.role)):
                     raise ValueError("Mail application ownership or evidence mismatch")
+                app = self.tracker._application_from_row(row)
+                previous = self._decorate([app], self._events(connection, user_id))[0]
             result = connection.execute(
                 "INSERT OR IGNORE INTO jobscout_mail_events(user_id,application_id,fingerprint,event_json,received_at) VALUES(?,?,?,?,?)",
                 (user_id, event.application_id, fingerprint, event.model_dump_json(), event.received_at.astimezone(UTC).isoformat()),
             )
+            if result.rowcount and previous is not None:
+                current = self._decorate([app], self._events(connection, user_id))[0]
+                before = (previous.source_summary or {}).get("status", previous.status.value)
+                after = current.source_summary or {}
+                if before != "未知" and after.get("source") == "email" and not after.get("conflict") and after["status"] != before:
+                    connection.execute(
+                        "INSERT OR IGNORE INTO jobscout_notifications(user_id,application_id,old_status,new_status,evidence,source,source_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                        (user_id, app.id, before, after["status"], after["evidence"], "email", str(after["event_id"]), datetime.now(UTC).isoformat()),
+                    )
         return result.rowcount > 0
 
     def list_events(self, user_id: str, application_id: int | None = None) -> list[dict]:
@@ -56,15 +69,23 @@ class MailStore:
     def decorate(self, user_id: str, applications: list):
         # One bounded query per user listing, not per application.
         with self.tracker._connect() as connection:
-            rows = connection.execute(
-                """SELECT id,event_json FROM (
+            events = self._events(connection, self.tracker._validated_user_id(user_id))
+        return self._decorate(applications, events)
+
+    @staticmethod
+    def _events(connection, user_id):
+        rows = connection.execute(
+            """SELECT id,event_json FROM (
                 SELECT id,event_json,DENSE_RANK() OVER (PARTITION BY application_id ORDER BY received_at DESC) AS n
                 FROM jobscout_mail_events WHERE user_id=? AND application_id IS NOT NULL
                 AND json_extract(event_json,'$.review_reason') IS NULL AND json_extract(event_json,'$.status') IS NOT NULL
             ) WHERE n <= 2 ORDER BY id DESC""",
-                (self.tracker._validated_user_id(user_id),),
-            ).fetchall()
-        events = sorted([{"id": row["id"], **json.loads(row["event_json"])} for row in rows], key=lambda event: (datetime.fromisoformat(event["received_at"]), event["id"]), reverse=True)
+            (user_id,),
+        ).fetchall()
+        return sorted([{"id": row["id"], **json.loads(row["event_json"])} for row in rows], key=lambda event: (datetime.fromisoformat(event["received_at"]), event["id"]), reverse=True)
+
+    @staticmethod
+    def _decorate(applications, events):
         results = []
         for app in applications:
             candidates = [event for event in events if event["application_id"] == app.id and event["status"] and not event["review_reason"]]

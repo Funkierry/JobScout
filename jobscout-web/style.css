@@ -1685,3 +1685,11 @@ textarea:focus {
     transition-duration: .01ms !important;
   }
 }
+
+.tracker-schedule-form { display: grid; gap: 16px; }
+.tracker-schedule-form label { display: grid; gap: 8px; font-size: 14px; }
+.tracker-schedule-form input:not([type="checkbox"]), .tracker-schedule-form select { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 8px; color: inherit; background: #fff; }
+.tracker-schedule-form .tracker-check { display: flex; align-items: center; gap: 10px; }
+.tracker-check input { width: 18px; height: 18px; accent-color: var(--blue); }
+.tracker-unread { display: inline-block; background: var(--blue); color: #fff; border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+.tracker-mail-event button { margin-top: 12px; }

@@ -964,6 +964,7 @@ async function loadTrackerApplications() {
     }
     renderTrackerRows();
     if ($("chatStatus")) $("chatStatus").textContent = `${trackerRows.length} 条投递记录`;
+    loadTrackerNotifications().catch(() => {});
   } catch (error) {
     showTrackerError(error.message || String(error));
   }
@@ -994,6 +995,81 @@ async function openTrackerMail() {
     }
     if (!events.length) list.append(trackerElement("p", "empty-hint", "还没有招聘邮件事件。"));
   } catch (error) { $("trackerMailStatus").textContent = error.message; }
+}
+
+async function loadTrackerNotifications() {
+  const notices = await apiJson("/api/jobscout/tracker/notifications");
+  const unread = notices.filter((notice) => !notice.read).length;
+  $("trackerUnreadCount").textContent = String(unread);
+  $("trackerUnreadCount").classList.toggle("hidden", !unread);
+  return notices;
+}
+
+async function openTrackerNotifications() {
+  $("trackerNotificationsDialog").showModal();
+  const list = $("trackerNotificationsList");
+  list.replaceChildren();
+  $("trackerNotificationsStatus").textContent = "正在读取通知…";
+  try {
+    const notices = await loadTrackerNotifications();
+    $("trackerNotificationsStatus").textContent = notices.length ? "仅显示已确认的进度变化，最多展示最近 100 条。" : "暂时没有新的进度变化。";
+    for (const notice of notices) {
+      const card = trackerElement("article", "tracker-mail-event");
+      card.append(trackerElement("strong", "", `${notice.company} · ${notice.role}`));
+      card.append(trackerElement("p", "", `${notice.old_status} → ${notice.new_status}`));
+      card.append(trackerElement("blockquote", "", notice.evidence));
+      card.append(trackerElement("small", "", `${notice.source === "email" ? "招聘邮件" : "官网检查"} · ${formatTrackerDate(notice.created_at)}`));
+      if (!notice.read) {
+        const read = trackerElement("button", "secondary-btn", "标为已读");
+        read.type = "button";
+        read.addEventListener("click", async () => {
+          read.disabled = true;
+          try {
+            await apiJson(`/api/jobscout/tracker/notifications/${notice.id}/read`, { method: "POST" });
+            read.textContent = "已读";
+            await loadTrackerNotifications();
+          } catch (error) { read.disabled = false; $("trackerNotificationsStatus").textContent = error.message; }
+        });
+        card.append(read);
+      }
+      list.append(card);
+    }
+  } catch (error) { $("trackerNotificationsStatus").textContent = error.message; }
+}
+
+async function openTrackerSchedule() {
+  $("trackerScheduleDialog").showModal();
+  $("trackerScheduleSave").disabled = true;
+  $("trackerScheduleStatus").textContent = "正在读取设置…";
+  try {
+    const settings = await apiJson("/api/jobscout/tracker/schedule");
+    $("trackerScheduleEnabled").checked = settings.enabled;
+    $("trackerScheduleEnabled").disabled = !settings.server_enabled;
+    $("trackerScheduleInterval").value = settings.interval_minutes;
+    $("trackerScheduleLimit").value = settings.daily_limit;
+    const timezone = $("trackerScheduleTimezone");
+    if (![...timezone.options].some((option) => option.value === settings.timezone)) timezone.add(new Option(settings.timezone, settings.timezone));
+    timezone.value = settings.timezone;
+    $("trackerScheduleModel").checked = settings.allow_model_fallback;
+    $("trackerScheduleStatus").textContent = settings.server_enabled
+      ? `今日已检查 ${settings.used_today} / ${settings.daily_limit} 次${settings.next_run_at ? ` · 下次：${formatTrackerDate(settings.next_run_at)}` : ""}`
+      : "服务器尚未开启定时刷新。可先保存频率设置，启用方法见项目的定时刷新说明。";
+    $("trackerScheduleSave").disabled = false;
+  } catch (error) { $("trackerScheduleStatus").textContent = error.message; }
+}
+
+async function saveTrackerSchedule(event) {
+  event.preventDefault();
+  $("trackerScheduleSave").disabled = true;
+  try {
+    await apiJson("/api/jobscout/tracker/schedule", { method: "PUT", json: {
+      enabled: $("trackerScheduleEnabled").checked && !$("trackerScheduleEnabled").disabled,
+      interval_minutes: Number($("trackerScheduleInterval").value), daily_limit: Number($("trackerScheduleLimit").value),
+      timezone: $("trackerScheduleTimezone").value, allow_model_fallback: $("trackerScheduleModel").checked,
+    } });
+    $("trackerScheduleStatus").textContent = "设置已保存。";
+  } catch (error) { $("trackerScheduleStatus").textContent = error.message; }
+  finally { $("trackerScheduleSave").disabled = false; }
 }
 
 function renderTrackerStageEditor() {
@@ -1124,6 +1200,14 @@ async function refreshAllTrackerRows() {
 
 function setupTracker() {
   $("trackerMailBtn")?.addEventListener("click", openTrackerMail);
+  $("trackerScheduleBtn")?.addEventListener("click", openTrackerSchedule);
+  $("trackerScheduleClose")?.addEventListener("click", () => $("trackerScheduleDialog").close());
+  $("trackerScheduleForm")?.addEventListener("submit", saveTrackerSchedule);
+  $("trackerNotificationsBtn")?.addEventListener("click", openTrackerNotifications);
+  $("trackerNotificationsClose")?.addEventListener("click", () => $("trackerNotificationsDialog").close());
+  setInterval(() => {
+    if (currentUserEmail && !document.hidden && !$("trackerPanel").classList.contains("hidden")) loadTrackerNotifications().catch(() => {});
+  }, 60000);
   $("trackerMailClose")?.addEventListener("click", () => $("trackerMailDialog").close());
   $("trackerMailSync")?.addEventListener("click", async () => {
     $("trackerMailSync").disabled = true;

@@ -1,5 +1,7 @@
 # Application tracker
 
+Stage 7: `scheduling.py` owns owner-scoped settings, atomic per-day reservations and transactional notices. `scheduled_graph.py` accepts only the gated, trusted native scheduler context; never assemble the lead agent here. `allow_model_fallback=False` must avoid model initialization on every tracker branch. Cancellation/failure consumes reserved quota. Portal notices use the check transaction; mail notices share source resolution and the mail transaction. See `docs/jobscout/scheduled-refresh.md`.
+
 ### Application tracker browser navigation
 
 `store.py` also owns JobScout target roles, links to prep/match threads and tracker applications, and a bounded per-thread match-candidate snapshot. Preserve per-user ownership checks in both store and Gateway routes; a thread or application may link to at most one target. Deleting a target must leave the underlying thread and application intact. A Feishu target's table and record IDs identify the source, but its private JD snapshot is user-supplied context, never public research evidence. Tracker application URLs remain separate personal official-status URLs and must not be inferred from a Feishu role URL.

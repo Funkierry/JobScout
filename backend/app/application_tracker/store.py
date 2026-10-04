@@ -157,6 +157,7 @@ class ApplicationTrackerStore:
 
     def _initialize(self) -> None:
         from app.application_tracker.email.store import SCHEMA as MAIL_SCHEMA
+        from app.application_tracker.scheduling import SCHEMA as SCHEDULING_SCHEMA
 
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
@@ -219,6 +220,7 @@ class ApplicationTrackerStore:
                     connection.execute(f"ALTER TABLE applications ADD COLUMN {name} {declaration}")
             connection.execute("UPDATE applications SET stage = status WHERE stage = ''")
             connection.executescript(MAIL_SCHEMA)
+            connection.executescript(SCHEDULING_SCHEMA)
             connection.execute("CREATE TABLE IF NOT EXISTS application_stages (user_id TEXT NOT NULL, name TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY(user_id, name), UNIQUE(user_id, position))")
             connection.executescript(
                 """

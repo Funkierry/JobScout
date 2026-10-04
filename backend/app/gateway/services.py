@@ -802,6 +802,10 @@ def resolve_agent_factory(assistant_id: str | None):
         from app.jobscout.entry_graph import assemble_jobscout
 
         return assemble_jobscout
+    if assistant_id == "jobscout-tracker-refresh":
+        from app.application_tracker.scheduled_graph import assemble_scheduled_refresh
+
+        return assemble_scheduled_refresh
     from deerflow.agents.lead_agent.agent import assemble_lead_agent
 
     return assemble_lead_agent

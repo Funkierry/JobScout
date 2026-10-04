@@ -19,6 +19,7 @@ from app.application_tracker.csv_import import (
     parse_application_csv,
 )
 from app.application_tracker.models import ApplicationInput
+from app.application_tracker.scheduling import RefreshSettings
 from app.application_tracker.store import (
     ApplicationTrackerStore,
     ImportSummary,
@@ -328,6 +329,110 @@ async def tracker_mail_config(request: Request) -> dict:
     except Exception:
         raise HTTPException(status_code=422, detail="本地邮件配置无效，请在本机检查。") from None
     return {"enabled": config.enabled, "provider": config.provider, "sender_domain_count": len(config.sender_domains), "max_messages": config.max_messages}
+
+
+@router.get("/tracker/schedule")
+@require_permission("runs", "read")
+async def tracker_schedule(request: Request) -> dict:
+    from app.application_tracker.scheduled_graph import enabled
+    from app.application_tracker.scheduling import SchedulingStore, task_id_for
+    from app.gateway.deps import get_config, get_scheduled_task_repo
+
+    user_id = get_effective_user_id()
+    store = SchedulingStore(_tracker_store())
+    settings = await asyncio.to_thread(store.settings, user_id)
+    task = None
+    try:
+        task = await get_scheduled_task_repo(request).get(task_id_for(user_id), user_id=user_id)
+    except HTTPException:
+        pass
+    return {
+        **settings.model_dump(),
+        "used_today": await asyncio.to_thread(store.usage, user_id),
+        "server_enabled": enabled() and get_config().scheduler.enabled,
+        "task_status": task.get("status") if task else None,
+        "next_run_at": task.get("next_run_at") if task else None,
+    }
+
+
+@router.put("/tracker/schedule")
+@require_permission("runs", "create")
+async def configure_tracker_schedule(body: RefreshSettings, request: Request) -> dict:
+    from datetime import UTC, datetime
+
+    from app.application_tracker.scheduled_graph import enabled
+    from app.application_tracker.scheduling import SchedulingStore, task_id_for
+    from app.gateway.deps import get_config, get_scheduled_task_repo
+    from deerflow.persistence.scheduled_tasks import ActiveScheduledTaskMutationConflict
+    from deerflow.scheduler.schedules import next_run_at
+
+    user_id = get_effective_user_id()
+    store = SchedulingStore(_tracker_store())
+    if body.enabled and not (enabled() and get_config().scheduler.enabled):
+        raise HTTPException(409, "定时刷新尚未在服务器启用，请先完成本地配置。")
+    if not body.enabled:
+        # Stop future budget reservations even while an occurrence is draining.
+        await asyncio.to_thread(store.configure, user_id, body)
+    try:
+        repo = get_scheduled_task_repo(request)
+    except HTTPException:
+        if body.enabled:
+            raise
+        return {**body.model_dump(), "task_status": None}
+    task_id = task_id_for(user_id)
+    existing = await repo.get(task_id, user_id=user_id)
+    interval = max(body.interval_minutes * 60, get_config().scheduler.min_once_delay_seconds)
+    spec = {"every_seconds": interval}
+    upcoming = next_run_at("interval", spec, body.timezone, now=datetime.now(UTC)) if body.enabled else None
+    try:
+        if existing:
+            if existing.get("assistant_id") != "jobscout-tracker-refresh":
+                raise HTTPException(409, "该定时任务已被修改，请先在任务管理中核对。")
+            if not body.enabled:
+                # Existing active work retains normal scheduler lease semantics.
+                result = await repo.pause_with_queue_cancellation(task_id, user_id=user_id, error="JobScout refresh disabled", now=datetime.now(UTC))
+                if result == "executing":
+                    raise HTTPException(409, "已关闭后续刷新；当前检查结束后请再次保存，暂停调度任务。")
+            else:
+                await repo.update(task_id, user_id=user_id, require_mutable=True, updates={"status": "enabled", "schedule_spec": spec, "timezone": body.timezone, "next_run_at": upcoming})
+        elif body.enabled:
+            await repo.create(
+                task_id=task_id,
+                user_id=user_id,
+                thread_id=None,
+                context_mode="fresh_thread_per_run",
+                assistant_id="jobscout-tracker-refresh",
+                title="JobScout 投递定时刷新",
+                prompt="执行当前用户配置的投递刷新。",
+                schedule_type="interval",
+                schedule_spec=spec,
+                timezone=body.timezone,
+                next_run_at=upcoming,
+            )
+    except ActiveScheduledTaskMutationConflict:
+        if body.enabled:
+            raise HTTPException(409, "任务正在运行，请结束后再修改频率。") from None
+    if body.enabled:
+        await asyncio.to_thread(store.configure, user_id, body)
+    return {**body.model_dump(), "next_run_at": upcoming}
+
+
+@router.get("/tracker/notifications")
+@require_permission("runs", "read")
+async def tracker_notifications(request: Request) -> list[dict]:
+    from app.application_tracker.scheduling import SchedulingStore
+
+    return await asyncio.to_thread(SchedulingStore(_tracker_store()).notifications, get_effective_user_id())
+
+
+@router.post("/tracker/notifications/{notification_id}/read")
+@require_permission("runs", "create")
+async def read_tracker_notification(notification_id: int, request: Request) -> dict:
+    from app.application_tracker.scheduling import SchedulingStore
+
+    if not await asyncio.to_thread(SchedulingStore(_tracker_store()).mark_read, get_effective_user_id(), notification_id):
+        raise HTTPException(404, "Notification was not found")
+    return {"read": True}
 
 
 @router.get("/tracker/mail/events")
