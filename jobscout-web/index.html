@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="theme-color" content="#f7f7f5" />
-<title>JobScout · AI 求职调研与岗位匹配</title>
+<meta name="theme-color" content="#f6f7f9" />
+<title>JobScout · 投递进度与面试准备</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -21,21 +21,21 @@
       </a>
 
       <div class="auth-story-content">
-        <span class="eyebrow">AI CAREER WORKSPACE</span>
-        <h1>把零散求职信息，<br />整理成清晰的下一步。</h1>
-        <p>从公司调研、岗位拆解到面试准备与简历匹配，在一个可追溯的 AI 工作台里完成。</p>
+        <span class="eyebrow">YOUR NEXT CHAPTER</span>
+        <h1>每一份投递，<br />都有清晰的下一步。</h1>
+        <p>看见进展，核对依据，准备下一轮。把求职过程中的每一次变化，有条理地留在这里。</p>
         <div class="auth-feature-list">
           <div class="auth-feature">
             <span class="feature-index">01</span>
-            <div><strong>真实来源</strong><small>关键信息附带可核验的公开证据</small></div>
+            <div><strong>进度，一目了然</strong><small>集中跟进投递状态与新的变化</small></div>
           </div>
           <div class="auth-feature">
             <span class="feature-index">02</span>
-            <div><strong>完整路径</strong><small>调研、分析、准备与留存一次完成</small></div>
+            <div><strong>判断，有据可查</strong><small>状态与报告保留来源和原文依据</small></div>
           </div>
           <div class="auth-feature">
             <span class="feature-index">03</span>
-            <div><strong>为你匹配</strong><small>结合简历与私有岗位库给出解释</small></div>
+            <div><strong>下一轮，从容准备</strong><small>连接目标岗位、简历与面试准备</small></div>
           </div>
         </div>
       </div>
@@ -54,7 +54,7 @@
         <div class="auth-heading">
           <span class="eyebrow eyebrow-dark">WELCOME BACK</span>
           <h2>登录你的求职工作台</h2>
-          <p>继续之前的调研、面试准备与岗位匹配。</p>
+          <p>查看投递的新进展，继续准备下一次机会。</p>
         </div>
         <form id="authForm" class="auth-form">
           <label for="authEmail">邮箱
@@ -98,17 +98,17 @@
     </button>
 
     <nav class="sidebar-nav" aria-label="任务类型">
-      <button type="button" id="sidebarPrepBtn" class="sidebar-nav-item active">
+      <button type="button" id="sidebarTrackerBtn" class="sidebar-nav-item active">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5M17 12v5M14.5 14.5h5"/></svg>
+        <span><strong>进度追踪</strong><small>批量检查已投递岗位</small></span>
+      </button>
+      <button type="button" id="sidebarPrepBtn" class="sidebar-nav-item">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12.5M8 9h8M8 13h5M3 19h18"/></svg>
         <span><strong>面试准备</strong><small>公司与岗位深度调研</small></span>
       </button>
       <button type="button" id="sidebarMatchBtn" class="sidebar-nav-item">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 11l2 2 4-4"/></svg>
         <span><strong>岗位匹配</strong><small>简历 × 飞书岗位库</small></span>
-      </button>
-      <button type="button" id="sidebarTrackerBtn" class="sidebar-nav-item">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5M17 12v5M14.5 14.5h5"/></svg>
-        <span><strong>进度追踪</strong><small>批量检查已投递岗位</small></span>
       </button>
     </nav>
 
@@ -142,7 +142,7 @@
         <div class="workspace-heading">
           <div class="workspace-title-row">
             <h1 id="workspaceTitle">面试准备</h1>
-            <span class="workspace-badge">AI workspace</span>
+            <span class="workspace-badge">个人工作台</span>
           </div>
           <p id="workspaceSubtitle">基于公开证据完成公司调研、岗位拆解与面试题预测</p>
         </div>
@@ -214,8 +214,19 @@
         <div>
           <span class="eyebrow eyebrow-dark">APPLICATION TRACKER</span>
           <h2>我的投递进度</h2>
-          <p>添加登录后的申请列表或岗位详情链接；系统会从官网读取各岗位的投递时间与进度，并显示当前阶段已追踪的等待时长。</p>
+          <p>跟进每一份申请。看见变化，也看得见依据。</p>
         </div>
+      </div>
+
+      <div class="tracker-overview" aria-label="全部投递概览" aria-live="polite">
+        <article class="tracker-stat"><span>全部投递</span><strong id="trackerTotalCount">0</strong><small>所有已保存的申请</small></article>
+        <article class="tracker-stat tracker-stat-active"><span>进行中</span><strong id="trackerActiveCount">0</strong><small>已确认 · 等待下一步</small></article>
+        <article class="tracker-stat"><span>待核对</span><strong id="trackerReviewCount">0</strong><small>未知、冲突或需重新登录</small></article>
+        <article class="tracker-stat"><span>已获 Offer</span><strong id="trackerOfferCount">0</strong><small>已确认的录用进展</small></article>
+      </div>
+
+      <div class="tracker-controls">
+        <span class="tracker-controls-label">申请记录</span>
         <div class="tracker-actions">
           <button id="trackerDensityBtn" type="button" class="secondary-btn tracker-density-btn" aria-pressed="true" title="切换表格显示密度">紧凑显示</button>
           <button id="trackerAddToggle" type="button" class="secondary-btn" aria-controls="trackerAddForm" aria-expanded="true">收起添加</button>
@@ -224,7 +235,7 @@
           <button id="trackerScheduleBtn" type="button" class="secondary-btn">定时刷新</button>
           <button id="trackerNotificationsBtn" type="button" class="secondary-btn">通知<span id="trackerUnreadCount" class="tracker-unread hidden"></span></button>
           <button id="trackerExportBtn" type="button" class="secondary-btn">导出 CSV</button>
-          <button id="trackerRefreshAllBtn" type="button" class="primary-btn">更新全部</button>
+          <button id="trackerRefreshAllBtn" type="button" class="primary-btn">刷新进度</button>
         </div>
       </div>
 
@@ -277,6 +288,7 @@
         <div id="trackerMailEvents" class="tracker-mail-events"></div>
       </dialog>
       <p id="trackerError" class="tracker-error hidden" role="alert"></p>
+      <p id="trackerLoading" class="tracker-loading hidden" role="status">正在读取投递记录…</p>
 
       <dialog id="trackerScheduleDialog" class="tracker-result-dialog" aria-labelledby="trackerScheduleTitle">
         <div class="tracker-result-head"><h3 id="trackerScheduleTitle">定时刷新</h3><button id="trackerScheduleClose" type="button" class="secondary-btn">关闭</button></div>

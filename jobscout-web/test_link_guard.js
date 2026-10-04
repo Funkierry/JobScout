@@ -19,6 +19,8 @@ async function main() {
   context.document = { createElement: element, getElementById: () => chat };
   context.bubbles = [];
   vm.runInContext(`
+    // This scenario opens interview preparation from the tracker landing page.
+    currentMode = "prep";
     removeWelcomeState = () => {};
     scrollChatToBottom = () => {};
     addChatBubble = (role, text) => bubbles.push({ role, text });

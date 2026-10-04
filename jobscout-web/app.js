@@ -36,6 +36,19 @@ function trackerRowPresentation(row) {
   };
 }
 
+function trackerSummary(rows) {
+  const summary = { total: rows.length, active: 0, review: 0, offers: 0 };
+  for (const stored of rows) {
+    const row = trackerDisplayRow(stored);
+    const presentation = trackerRowPresentation(row);
+    const review = row.source_summary?.conflict || presentation.needsReview || !row.status || row.status === "未知" || (row.check_result && row.check_result !== "成功");
+    if (review) summary.review += 1;
+    else if (row.status === "Offer") summary.offers += 1;
+    else if (!presentation.terminal) summary.active += 1;
+  }
+  return summary;
+}
+
 function trackerStageWaitText(row, now = new Date()) {
   if (!row?.status || row.status === "未知") return "阶段待确认";
   if (row.terminal || isTerminalTrackerStatus(row.status)) return "流程已结束";
@@ -161,6 +174,8 @@ function onLoggedIn() {
     renderWelcomeState();
     hasShownWelcome = true;
   }
+  setMode("tracker", { restoreThread: false });
+  Promise.all([loadTrackerStages(), loadTrackerApplications()]).catch((error) => showTrackerError(error.message || String(error)));
   loadThreadList();
   loadLarkStatus();
   loadOpportunities().catch((error) => console.error("loadOpportunities failed", error));
@@ -248,7 +263,7 @@ let activeThreadId = null;
 let chatStartTime = null;
 let chatTimerHandle = null;
 let pendingFile = null;
-let currentMode = "prep";
+let currentMode = "tracker";
 let trackerRows = [];
 let trackerBusy = false;
 let trackerStages = [];
@@ -564,7 +579,7 @@ function renderWelcomeState() {
         `).join("")}
       </div>
       <div class="welcome-capabilities" aria-label="产品能力">
-        <span>公开来源可追溯</span><span>PDF / Word 简历解析</span><span>8+4 面试题</span><span>报告导出</span>
+        <span>公开来源可追溯</span><span>PDF / Word 简历解析</span><span>有据可查的面试题</span><span>报告导出</span>
       </div>
     </section>`;
 
@@ -807,6 +822,10 @@ function renderTrackerRows() {
   const body = $("trackerTableBody");
   if (!body) return;
   body.replaceChildren();
+  const summary = trackerSummary(trackerRows);
+  for (const [key, id] of Object.entries({ total: "trackerTotalCount", active: "trackerActiveCount", review: "trackerReviewCount", offers: "trackerOfferCount" })) {
+    if ($(id)) $(id).textContent = String(summary[key]);
+  }
   const options = trackerStageFilterOptions(trackerRows, trackerStages);
   if (trackerStageFilter !== null && !options.some((option) => option.label === trackerStageFilter)) {
     options.push({ label: trackerStageFilter, count: 0 });
@@ -955,6 +974,8 @@ async function patchTrackerRow(id, changes) {
 
 async function loadTrackerApplications() {
   showTrackerError();
+  $("trackerLoading")?.classList.remove("hidden");
+  $("trackerPanel")?.setAttribute("aria-busy", "true");
   try {
     const rows = await apiJson("/api/jobscout/tracker/applications");
     trackerRows = Array.isArray(rows) ? rows : [];
@@ -967,6 +988,9 @@ async function loadTrackerApplications() {
     loadTrackerNotifications().catch(() => {});
   } catch (error) {
     showTrackerError(error.message || String(error));
+  } finally {
+    $("trackerLoading")?.classList.add("hidden");
+    $("trackerPanel")?.setAttribute("aria-busy", "false");
   }
 }
 
@@ -1258,7 +1282,6 @@ function setupTracker() {
     } catch (error) { showTrackerError(error.message || String(error)); }
     finally { setTrackerBusy(false); }
   });
-  Promise.all([loadTrackerStages(), loadTrackerApplications()]).catch((error) => showTrackerError(error.message || String(error)));
 }
 
 function openSidebar() {
@@ -1279,6 +1302,7 @@ function setupSidebarShell() {
     if (event.key === "Escape") closeSidebar();
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();
+      if (currentMode === "tracker") setMode("prep", { restoreThread: false });
       resetChat();
       renderThreadList();
       closeSidebar();
@@ -2030,6 +2054,7 @@ function renderReport(markdown) {
 
 function wireNewChatButton() {
   $("newChatBtn")?.addEventListener("click", () => {
+    if (currentMode === "tracker") setMode("prep", { restoreThread: false });
     resetChat();
     renderThreadList();
     show("chatView");
@@ -2320,6 +2345,7 @@ if (typeof module !== "undefined") {
     withSkillPrefix,
     isTerminalTrackerStatus,
     trackerDisplayRow,
+    trackerSummary,
     trackerRowPresentation,
     trackerIsSiteHomepage,
     trackerStageWaitText,

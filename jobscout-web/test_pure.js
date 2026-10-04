@@ -1,7 +1,5 @@
-// One-off Node smoke test for app.js's pure functions — no browser available
-// this session, so this is a stand-in for at least catching logic bugs in
-// the SSE-message parsing and Markdown renderer before a real browser test.
-// Not a permanent test suite; delete once real browser testing is possible.
+// Offline assertions for tracker statistics, SSE and guarded report rendering.
+// Browser interaction coverage lives in test_ui.py.
 
 const assert = require("assert");
 const fs = require("fs");
@@ -20,6 +18,7 @@ const {
   withSkillPrefix,
   isTerminalTrackerStatus,
   trackerDisplayRow,
+  trackerSummary,
   trackerRowPresentation,
   trackerIsSiteHomepage,
   trackerStageWaitText,
@@ -28,6 +27,16 @@ const {
   filterTrackerRows,
   parseSseFrames,
 } = require("./app.js");
+
+assert.deepStrictEqual(trackerSummary([]), { total: 0, active: 0, review: 0, offers: 0 });
+assert.deepStrictEqual(trackerSummary([
+  { status: "一面", confidence: 0.9, checked_at: "2026-10-01", check_result: "成功" },
+  { status: "未知", confidence: 0, check_result: "需登录" },
+  { status: "Offer", confidence: 1, checked_at: "2026-10-01", check_result: "成功" },
+  { status: "未通过", confidence: 1, checked_at: "2026-10-01", check_result: "成功" },
+  { status: "一面", confidence: 1, source_summary: { conflict: true, source: "portal" } },
+  { status: "已投递", confidence: 1, source_summary: { conflict: false, source: "email", status: "Offer", received_at: "2026-10-02" } },
+]), { total: 6, active: 1, review: 2, offers: 2 });
 
 // One guard path feeds live output, history, print and Markdown download.
 assert.deepStrictEqual(jobScoutRunContext("prep"), { jobscout_mode: "interview_prep", jobscout_evidence_version: 2 });

@@ -6,6 +6,10 @@ JobScout 是基于 DeerFlow 的求职应用，以投递进度追踪为主线，�
 
 [功能与护栏](docs/jobscout/guardrails.md) · [真实指标与待验证项](docs/jobscout/metrics.md) · [上游 DeerFlow 文档](README_DEERFLOW.md)
 
+![JobScout 投递进度工作台，使用合成数据](docs/jobscout/tracker-workspace.png)
+
+界面截图来自完全拦截网络请求的本地浏览器 fixture，所有公司、岗位与账号均为合成数据。新版默认进入投递追踪，提供概览卡片、环节筛选与移动端卡片视图；[查看手机界面](docs/jobscout/tracker-mobile.png)。
+
 ## 从投递到下一轮面试
 
 1. **添加投递**：填写公司与个人申请列表/详情链接，复用本地登录 profile；多岗位列表按岗位分别记录。
@@ -102,6 +106,7 @@ JobScout 报告需要注册应用中间件，严格线程入口需要 `JOBSCOUT_
 
 ```powershell
 node jobscout-web/test_pure.js
+backend/.venv/Scripts/python.exe -B jobscout-web/test_ui.py
 backend/.venv/Scripts/python.exe -B -m unittest discover -s skills/public/jobscout/scripts -p "test_*.py"
 # 在 backend 目录运行，阻断外网并禁用本地 dotenv
 .venv/Scripts/python.exe -B scripts/jobscout_offline_tests.py

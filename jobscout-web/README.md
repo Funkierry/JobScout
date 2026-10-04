@@ -32,8 +32,12 @@ keeping the existing conversations and tracker rows.
 
 ## Main workspace
 
-The browser client uses a full-height, ChatGPT-style workspace rather than a
-standalone form. The left sidebar contains task-mode navigation, new-chat and
+The browser client opens on the application tracker after login. Its flat visual
+style uses solid blue accents, neutral surfaces, clear type and borders. Summary
+cards count all saved applications, confirmed active processes, review-needed
+records and confirmed offers; they are calculated from current records, never
+placeholder statistics. Unknown, conflicting and failed checks remain in review.
+The left sidebar contains task-mode navigation, new-chat and
 searchable DeerFlow thread history, plus the current account. The main area has
 an empty-state prompt gallery, evidence/status header, inline reports, resume
 drag-and-drop, and a persistent bottom composer. The sidebar becomes an
@@ -125,12 +129,19 @@ From the repository root:
 
 ```powershell
 node jobscout-web/test_pure.js
+backend/.venv/Scripts/python.exe -B jobscout-web/test_ui.py
 backend/.venv/Scripts/python.exe -B -m unittest discover -s skills/public/jobscout/scripts -p "test_*.py"
 ```
 
 These checks use fixture/mock data. Real research is a separate, user-initiated
 operation that can incur model and search costs; see the explicit baseline
 commands and unrun metrics in [metrics.md](../docs/jobscout/metrics.md).
+
+The browser check needs the installed Playwright Chromium runtime. Every HTTP
+request is fulfilled from local code or synthetic API fixtures; unexpected URLs
+are rejected. It covers desktop/mobile layouts, filters, source details,
+schedule settings, notification read state, mode switching, keyboard navigation,
+empty/error states and login layouts. Screenshots stay in `local_eval/ui/`.
 
 ## Mail and scheduled refresh
 
