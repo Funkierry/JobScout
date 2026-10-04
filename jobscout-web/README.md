@@ -44,6 +44,19 @@ drag-and-drop, and a persistent bottom composer. The sidebar becomes an
 off-canvas drawer on narrow screens, while all existing auth, upload, stream,
 print, Markdown download, and Feishu matching contracts remain unchanged.
 
+Each history entry has a **删除对话** button. A confirmation dialog identifies
+the conversation and explains that its history and uploaded files will be removed.
+Targets and application records survive; only the deleted thread's target links
+and saved matching candidates are removed. Active runs cannot be deleted. Failure
+keeps the dialog open for retry; a local cleanup journal allows retry after native
+thread deletion has already completed. Deleting the current conversation clears
+the composer context. Late list/history responses cannot restore deleted entries
+or overwrite a newer session's lists.
+
+This uses `DELETE /api/jobscout/threads/{thread_id}` and the existing Gateway
+thread deletion lifecycle, including ownership checks and run reservations.
+Restart an older Gateway to load the new route, then refresh the browser.
+
 ## Run locally
 
 Start the Gateway on `http://localhost:8001`, then serve this directory on port
@@ -92,7 +105,11 @@ tag shows its record count; **全部** restores the full list. The selected tag
 stays active while rows refresh, and the displayed count updates with the data.
 Desktop tracking opens in **紧凑显示**: the add form is folded away when records
 exist, tags stay in a single scrollable row, and the table scrolls below a fixed
-header. Click a row's status pill for its full source excerpt, confidence, and
+header in both compact and expanded density. The table fills the remaining
+desktop height and supports the mouse wheel and keyboard PageDown; it does not
+limit the list to the visible rows. Summary cards start collapsed; **展开概览**
+opens them and the browser remembers that display preference. Click a row's
+status pill for its full source excerpt, confidence, and
 official-page link, or turn off **紧凑显示** for the expanded table. The add form
 remains available through **添加记录**. On narrow screens, tracker rows become
 cards so fields and actions remain readable.
@@ -130,6 +147,7 @@ From the repository root:
 ```powershell
 node jobscout-web/test_pure.js
 backend/.venv/Scripts/python.exe -B jobscout-web/test_ui.py
+backend/.venv/Scripts/python.exe -B jobscout-web/test_history_scroll.py
 backend/.venv/Scripts/python.exe -B -m unittest discover -s skills/public/jobscout/scripts -p "test_*.py"
 ```
 
@@ -142,6 +160,13 @@ request is fulfilled from local code or synthetic API fixtures; unexpected URLs
 are rejected. It covers desktop/mobile layouts, filters, source details,
 schedule settings, notification read state, mode switching, keyboard navigation,
 empty/error states and login layouts. Screenshots stay in `local_eval/ui/`.
+The history/scroll check uses 100 synthetic applications and covers confirmation,
+cancel, busy/error/retry, target preservation, HTML-safe titles, wheel/keyboard
+scrolling, sticky headings, density and overview toggles, and mobile cards.
+Its screenshots and measured row counts stay in `local_eval/jobscout_history_scroll/`.
+To compare an older layout with the same fixtures, pass `--baseline-ref <commit>`.
+`test_pure.js` also runs deferred-response tests for list ordering, account changes,
+duplicate delete clicks and history selection.
 
 ## Mail and scheduled refresh
 

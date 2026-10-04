@@ -272,6 +272,11 @@ class ApplicationTrackerStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_jobscout_match_candidates_user
                     ON jobscout_match_candidates(user_id, thread_id, position);
+                CREATE TABLE IF NOT EXISTS jobscout_thread_deletions (
+                    user_id TEXT NOT NULL,
+                    thread_id TEXT NOT NULL,
+                    PRIMARY KEY(user_id, thread_id)
+                );
                 """
             )
 
@@ -318,6 +323,23 @@ class ApplicationTrackerStore:
             )
             for row in rows
         ]
+
+    def begin_thread_deletion(self, user_id: str, thread_id: str) -> None:
+        """Record retry authority only after the Gateway verifies thread ownership."""
+        with self._connect() as connection:
+            connection.execute("INSERT OR IGNORE INTO jobscout_thread_deletions(user_id,thread_id) VALUES(?,?)", (self._validated_user_id(user_id), thread_id))
+
+    def thread_deletion_pending(self, user_id: str, thread_id: str) -> bool:
+        with self._connect() as connection:
+            return connection.execute("SELECT 1 FROM jobscout_thread_deletions WHERE user_id=? AND thread_id=?", (self._validated_user_id(user_id), thread_id)).fetchone() is not None
+
+    def finish_thread_deletion(self, user_id: str, thread_id: str) -> None:
+        """Remove only this owner's references; targets and applications survive."""
+        user_id = self._validated_user_id(user_id)
+        with self._connect() as connection:
+            connection.execute("DELETE FROM jobscout_opportunity_threads WHERE user_id=? AND thread_id=?", (user_id, thread_id))
+            connection.execute("DELETE FROM jobscout_match_candidates WHERE user_id=? AND thread_id=?", (user_id, thread_id))
+            connection.execute("DELETE FROM jobscout_thread_deletions WHERE user_id=? AND thread_id=?", (user_id, thread_id))
 
     def create_opportunity(
         self,

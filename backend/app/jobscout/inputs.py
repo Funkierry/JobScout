@@ -38,6 +38,12 @@ class BaseSnapshotStore:
                 self._entries.popitem(last=False)
             return ref
 
+    def drop_thread(self, user_id, thread_id):
+        with self._lock:
+            for ref, entry in list(self._entries.items()):
+                if entry[1:3] == (user_id, thread_id):
+                    del self._entries[ref]
+
     def get(self, ref, user_id, thread_id):
         snapshot = self.get_snapshot(ref, user_id, thread_id)
         return snapshot["records"] if snapshot else None

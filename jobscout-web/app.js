@@ -133,7 +133,10 @@ async function apiJson(path, opts) {
   try { body = await res.json(); } catch (_) { /* no body */ }
   if (!res.ok) {
     const msg = body?.detail?.message || body?.detail || res.statusText;
-    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    const error = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    error.status = res.status;
+    error.code = body?.detail?.code;
+    throw error;
   }
   return body;
 }
@@ -147,6 +150,22 @@ function show(view) {
 // ------------------------------------------------------------------ auth --
 
 let currentUserEmail = null;
+let viewSession = 0;
+const viewVersions = new Map();
+const deletedThreadIds = new Set();
+
+function invalidateSessionViews() {
+  viewSession += 1;
+  viewVersions.clear();
+  deletedThreadIds.clear();
+}
+
+function beginViewRequest(key) {
+  const session = viewSession;
+  const version = (viewVersions.get(key) || 0) + 1;
+  viewVersions.set(key, version);
+  return () => session === viewSession && viewVersions.get(key) === version;
+}
 
 async function checkSession() {
   const res = await api("/api/v1/auth/me");
@@ -163,6 +182,7 @@ async function checkSession() {
 let hasShownWelcome = false;
 
 function onLoggedIn() {
+  invalidateSessionViews();
   $("userBox").classList.remove("hidden");
   $("userEmail").textContent = currentUserEmail;
   if ($("userAvatar")) {
@@ -222,6 +242,11 @@ function setupAuthForm() {
   });
 
   $("logoutBtn").addEventListener("click", async () => {
+    invalidateSessionViews();
+    currentUserEmail = null;
+    pendingThreadDelete = null;
+    deletingThreadId = null;
+    document.querySelectorAll("dialog[open]").forEach(dialog => dialog.close());
     await api("/api/v1/auth/logout", { method: "POST" }).catch(() => {});
     currentUserEmail = null;
     opportunities = [];
@@ -230,6 +255,11 @@ function setupAuthForm() {
     lastBaseContext = null;
     savedMatchCandidates = { threadId: null, candidates: [] };
     trackerRows = [];
+    $("trackerLoading")?.classList.add("hidden");
+    $("trackerPanel")?.setAttribute("aria-busy", "false");
+    $("trackerUnreadCount").textContent = "0";
+    $("trackerUnreadCount").classList.add("hidden");
+    $("threadActionStatus").textContent = "";
     trackerAddFormInitialized = false;
     setTrackerAddFormOpen(true);
     threadListCache = [];
@@ -267,6 +297,7 @@ let currentMode = "tracker";
 let trackerRows = [];
 let trackerBusy = false;
 let trackerStages = [];
+let composerBusy = false;
 let trackerStageFilter = null;
 let trackerAddFormOpen = true;
 let trackerAddFormInitialized = false;
@@ -301,7 +332,9 @@ function renderOpportunityBar() {
 }
 
 async function loadOpportunities(selectId = selectedOpportunityId) {
+  const current = beginViewRequest("opportunities");
   const rows = await apiJson("/api/jobscout/opportunities");
+  if (!current()) return;
   opportunities = Array.isArray(rows) ? rows : [];
   selectedOpportunityId = opportunities.some((item) => item.id === selectId) ? selectId : null;
   renderOpportunityBar();
@@ -973,11 +1006,13 @@ async function patchTrackerRow(id, changes) {
 }
 
 async function loadTrackerApplications() {
+  const current = beginViewRequest("tracker");
   showTrackerError();
   $("trackerLoading")?.classList.remove("hidden");
   $("trackerPanel")?.setAttribute("aria-busy", "true");
   try {
     const rows = await apiJson("/api/jobscout/tracker/applications");
+    if (!current()) return;
     trackerRows = Array.isArray(rows) ? rows : [];
     if (!trackerAddFormInitialized) {
       setTrackerAddFormOpen(trackerRows.length === 0);
@@ -987,16 +1022,28 @@ async function loadTrackerApplications() {
     if ($("chatStatus")) $("chatStatus").textContent = `${trackerRows.length} 条投递记录`;
     loadTrackerNotifications().catch(() => {});
   } catch (error) {
-    showTrackerError(error.message || String(error));
+    if (current()) showTrackerError(error.message || String(error));
   } finally {
-    $("trackerLoading")?.classList.add("hidden");
-    $("trackerPanel")?.setAttribute("aria-busy", "false");
+    if (current()) {
+      $("trackerLoading")?.classList.add("hidden");
+      $("trackerPanel")?.setAttribute("aria-busy", "false");
+    }
   }
 }
 
 async function loadTrackerStages() {
-  trackerStages = await apiJson("/api/jobscout/tracker/stages");
+  const current = beginViewRequest("stages");
+  const stages = await apiJson("/api/jobscout/tracker/stages");
+  if (!current()) return;
+  trackerStages = stages;
   renderTrackerRows();
+}
+
+function setTrackerOverviewOpen(open) {
+  $("trackerOverview")?.classList.toggle("hidden", !open);
+  $("trackerOverviewToggle")?.setAttribute("aria-expanded", String(open));
+  if ($("trackerOverviewToggle")) $("trackerOverviewToggle").textContent = open ? "收起概览" : "展开概览";
+  try { localStorage.setItem("jobscoutTrackerOverview", open ? "expanded" : "collapsed"); } catch (_) { /* display preference only */ }
 }
 
 async function openTrackerMail() {
@@ -1022,7 +1069,9 @@ async function openTrackerMail() {
 }
 
 async function loadTrackerNotifications() {
+  const current = beginViewRequest("notifications");
   const notices = await apiJson("/api/jobscout/tracker/notifications");
+  if (!current()) return [];
   const unread = notices.filter((notice) => !notice.read).length;
   $("trackerUnreadCount").textContent = String(unread);
   $("trackerUnreadCount").classList.toggle("hidden", !unread);
@@ -1223,6 +1272,10 @@ async function refreshAllTrackerRows() {
 }
 
 function setupTracker() {
+  let overviewOpen = false;
+  try { overviewOpen = localStorage.getItem("jobscoutTrackerOverview") === "expanded"; } catch (_) { /* optional preference */ }
+  setTrackerOverviewOpen(overviewOpen);
+  $("trackerOverviewToggle")?.addEventListener("click", () => setTrackerOverviewOpen($("trackerOverviewToggle").getAttribute("aria-expanded") !== "true"));
   $("trackerMailBtn")?.addEventListener("click", openTrackerMail);
   $("trackerScheduleBtn")?.addEventListener("click", openTrackerSchedule);
   $("trackerScheduleClose")?.addEventListener("click", () => $("trackerScheduleDialog").close());
@@ -1499,6 +1552,8 @@ function recallHistory(direction) {
 }
 
 function setComposerBusy(busy) {
+  composerBusy = busy;
+  renderThreadList();
   $("composerInput").disabled = busy;
   $("composerSend").disabled = busy;
   $("attachBtn").disabled = busy;
@@ -2070,6 +2125,8 @@ function wireNewChatButton() {
 // long as you're logged into the same account.
 
 let threadListCache = [];
+let pendingThreadDelete = null;
+let deletingThreadId = null;
 
 /** Inverse of withSkillPrefix, for display only — history replay shows the
  *  user's real words, not the invisible /jobscout activation prefix. */
@@ -2078,16 +2135,19 @@ function stripSkillPrefix(text) {
 }
 
 async function loadThreadList() {
+  const current = beginViewRequest("threads");
   try {
     const threads = await apiJson("/api/threads/search", { method: "POST", json: { limit: 50 } });
+    if (!current()) return;
     threadListCache = (threads || [])
+      .filter(thread => !deletedThreadIds.has(thread.thread_id))
       .slice()
       .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
     renderThreadList();
   } catch (err) {
     // Non-fatal — the sidebar just stays empty/stale if this fails; it
     // shouldn't block the actual chat functionality.
-    console.error("loadThreadList failed", err);
+    if (current()) console.error("loadThreadList failed", err);
   }
 }
 
@@ -2111,6 +2171,8 @@ function renderThreadList() {
     return;
   }
   for (const t of visibleThreads) {
+    const row = document.createElement("div");
+    row.className = "thread-row";
     const item = document.createElement("button");
     item.type = "button";
     item.className = "thread-item" + (t.thread_id === activeThreadId ? " active" : "");
@@ -2119,12 +2181,92 @@ function renderThreadList() {
     item.title = title;
     item.setAttribute("aria-pressed", t.thread_id === activeThreadId ? "true" : "false");
     item.addEventListener("click", () => selectThread(t.thread_id));
-    container.appendChild(item);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "thread-delete-btn icon-btn";
+    remove.setAttribute("aria-label", `删除对话：${title}`);
+    remove.title = "删除对话";
+    remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"/></svg>';
+    remove.disabled = deletingThreadId === t.thread_id || ["busy", "running"].includes(t.status) || (composerBusy && activeThreadId === t.thread_id);
+    if (remove.disabled) remove.title = "对话正在运行或删除，请稍后再试";
+    remove.addEventListener("click", () => openThreadDelete(t));
+    row.append(item, remove);
+    container.appendChild(row);
   }
 }
 
+function openThreadDelete(thread) {
+  if (deletingThreadId || (composerBusy && activeThreadId === thread.thread_id)) return;
+  pendingThreadDelete = { id: thread.thread_id, title: thread.values?.title || "未命名对话" };
+  $("threadDeleteName").textContent = pendingThreadDelete.title;
+  $("threadDeleteError").classList.add("hidden");
+  $("threadDeleteConfirm").disabled = false;
+  $("threadDeleteCancel").disabled = false;
+  $("threadDeleteDialog").showModal();
+}
+
+async function confirmThreadDelete() {
+  if (!pendingThreadDelete || deletingThreadId) return;
+  const target = pendingThreadDelete;
+  const current = beginViewRequest("thread-delete");
+  deletingThreadId = target.id;
+  $("threadDeleteConfirm").disabled = true;
+  $("threadDeleteCancel").disabled = true;
+  $("threadDeleteError").classList.add("hidden");
+  renderThreadList();
+  try {
+    const result = await apiJson(`/api/jobscout/threads/${encodeURIComponent(target.id)}`, { method: "DELETE" });
+    if (!current()) return;
+    if (!result?.deleted) throw new Error("删除结果尚未确认，请重试。");
+    deletedThreadIds.add(target.id);
+    beginViewRequest("threads");
+    beginViewRequest("opportunities");
+    if (activeThreadId === target.id) {
+      beginViewRequest("thread-state");
+      resetChat();
+      lastBaseContext = null;
+      savedMatchCandidates = { threadId: null, candidates: [] };
+    }
+    threadListCache = threadListCache.filter(thread => thread.thread_id !== target.id);
+    opportunities = opportunities.map(item => ({ ...item,
+      prep_thread_id: item.prep_thread_id === target.id ? null : item.prep_thread_id,
+      match_thread_id: item.match_thread_id === target.id ? null : item.match_thread_id,
+    }));
+    renderOpportunityBar();
+    renderThreadList();
+    $("threadDeleteDialog").close();
+    $("threadActionStatus").textContent = "对话已删除";
+    const refreshed = await Promise.allSettled([loadThreadList(), loadOpportunities(selectedOpportunityId)]);
+    if (current() && refreshed.some(result => result.status === "rejected")) {
+      $("threadActionStatus").textContent = "对话已删除，关联岗位暂未刷新，请稍后刷新页面。";
+    }
+  } catch (error) {
+    if (!current()) return;
+    const messages = { 401: "登录已失效，请重新登录后再试。", 403: "当前账号没有删除此对话的权限。", 409: "对话仍有任务运行，请结束后再删除。" };
+    $("threadDeleteError").textContent = error.status === 404 && error.code !== "jobscout_thread_not_found"
+      ? "当前后端尚不支持此删除入口，请更新并重启 Gateway 后再试。"
+      : messages[error.status] || error.message || "删除失败，请重试。";
+    $("threadDeleteError").classList.remove("hidden");
+  } finally {
+    if (current()) {
+      deletingThreadId = null;
+      $("threadDeleteConfirm").disabled = false;
+      $("threadDeleteCancel").disabled = false;
+      renderThreadList();
+    }
+  }
+}
+
+function setupThreadDeletion() {
+  $("threadDeleteConfirm")?.addEventListener("click", confirmThreadDelete);
+  $("threadDeleteCancel")?.addEventListener("click", () => $("threadDeleteDialog").close());
+  $("threadDeleteDialog")?.addEventListener("cancel", event => { if (deletingThreadId) event.preventDefault(); });
+  $("threadDeleteDialog")?.addEventListener("close", () => { pendingThreadDelete = null; });
+}
+
 async function selectThread(threadId) {
-  if (threadId === activeThreadId) return;
+  if (threadId === activeThreadId || deletedThreadIds.has(threadId)) return;
+  const current = beginViewRequest("thread-state");
   const linked = opportunities.find((item) => item.prep_thread_id === threadId || item.match_thread_id === threadId);
   if (linked) {
     selectedOpportunityId = linked.id;
@@ -2141,7 +2283,7 @@ async function selectThread(threadId) {
   renderThreadList(); // reflect the new active selection immediately
   try {
     const state = await apiJson(`/api/threads/${threadId}/state`);
-    if (activeThreadId !== threadId) return;
+    if (!current() || activeThreadId !== threadId || deletedThreadIds.has(threadId)) return;
     const messages = state?.values?.messages || [];
     if (!linked) {
       const lastHuman = [...messages].reverse().find((message) => message.type === "human");
@@ -2150,13 +2292,13 @@ async function selectThread(threadId) {
     if (currentMode === "match") {
       try {
         const candidates = await apiJson(`/api/jobscout/match-candidates/${threadId}`);
-        if (activeThreadId !== threadId) return;
+        if (!current() || activeThreadId !== threadId || deletedThreadIds.has(threadId)) return;
         savedMatchCandidates = { threadId, candidates };
       } catch (error) { console.error("load match candidates failed", error); }
     }
-    renderHistoryMessages(messages);
+    if (current() && activeThreadId === threadId && !deletedThreadIds.has(threadId)) renderHistoryMessages(messages);
   } catch (err) {
-    addChatBubble("assistant", "⚠️ 加载历史对话失败:" + (err.message || String(err)));
+    if (current() && activeThreadId === threadId) addChatBubble("assistant", "⚠️ 加载历史对话失败:" + (err.message || String(err)));
   }
 }
 
@@ -2325,6 +2467,7 @@ if (typeof document !== "undefined") {
   setupModeSwitcher();
   setupTracker();
   setupSidebarShell();
+  setupThreadDeletion();
   wireNewChatButton();
   checkSession();
 }

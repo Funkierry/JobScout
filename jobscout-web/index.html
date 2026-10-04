@@ -122,6 +122,7 @@
         <input id="threadSearch" type="search" autocomplete="off" placeholder="搜索历史对话" />
       </label>
       <div id="threadList" class="thread-list"></div>
+      <p id="threadActionStatus" class="thread-action-status" role="status"></p>
     </section>
 
     <div id="userBox" class="user-box hidden">
@@ -192,6 +193,17 @@
       </form>
     </dialog>
 
+    <dialog id="threadDeleteDialog" class="thread-delete-dialog" aria-labelledby="threadDeleteTitle" aria-describedby="threadDeleteDescription">
+      <h2 id="threadDeleteTitle">删除历史对话？</h2>
+      <p id="threadDeleteName" class="thread-delete-name"></p>
+      <p id="threadDeleteDescription">此对话、历史内容及上传文件将被删除，无法撤销。目标岗位和投递记录会保留。</p>
+      <p id="threadDeleteError" class="error-text hidden" role="alert"></p>
+      <div class="thread-delete-actions">
+        <button id="threadDeleteCancel" type="button" class="secondary-btn" autofocus>取消</button>
+        <button id="threadDeleteConfirm" type="button" class="danger-btn">删除对话</button>
+      </div>
+    </dialog>
+
     <div id="matchPanel" class="match-panel hidden">
       <div class="match-panel-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 11l2 2 4-4"/></svg>
@@ -216,9 +228,10 @@
           <h2>我的投递进度</h2>
           <p>跟进每一份申请。看见变化，也看得见依据。</p>
         </div>
+        <button id="trackerOverviewToggle" type="button" class="secondary-btn" aria-controls="trackerOverview" aria-expanded="false">展开概览</button>
       </div>
 
-      <div class="tracker-overview" aria-label="全部投递概览" aria-live="polite">
+      <div id="trackerOverview" class="tracker-overview hidden" aria-label="全部投递概览" aria-live="polite">
         <article class="tracker-stat"><span>全部投递</span><strong id="trackerTotalCount">0</strong><small>所有已保存的申请</small></article>
         <article class="tracker-stat tracker-stat-active"><span>进行中</span><strong id="trackerActiveCount">0</strong><small>已确认 · 等待下一步</small></article>
         <article class="tracker-stat"><span>待核对</span><strong id="trackerReviewCount">0</strong><small>未知、冲突或需重新登录</small></article>
@@ -320,7 +333,7 @@
         <button id="trackerClearFilter" type="button" class="secondary-btn">查看全部投递</button>
       </div>
 
-      <div id="trackerTableWrap" class="tracker-table-wrap hidden">
+      <div id="trackerTableWrap" class="tracker-table-wrap hidden" tabindex="0" role="region" aria-label="投递岗位列表，支持滚动查看">
         <table class="tracker-table">
           <thead>
             <tr>

@@ -260,6 +260,35 @@ async def delete_opportunity(opportunity_id: int, request: Request) -> Response:
     return Response(status_code=204)
 
 
+@router.delete("/threads/{thread_id}")
+@require_permission("threads", "delete")
+async def delete_jobscout_thread(thread_id: ThreadId, request: Request) -> dict:
+    """Reuse native deletion, then remove JobScout-only references with retry."""
+    from app.gateway.routers.threads import delete_thread_data
+
+    user_id = get_effective_user_id()
+    thread_store = get_thread_store(request)
+    tracker = await asyncio.to_thread(_tracker_store)
+    existing = await thread_store.get(thread_id, user_id=user_id)
+    if existing is None and not await asyncio.to_thread(tracker.thread_deletion_pending, user_id, thread_id):
+        raise HTTPException(404, detail={"code": "jobscout_thread_not_found", "message": "对话不存在或无权删除。"})
+    if existing is not None:
+        await asyncio.to_thread(tracker.begin_thread_deletion, user_id, thread_id)
+        # Native handler rechecks permission/ownership and holds its normal
+        # exclusive operation reservation. Never bypass it or delete files here.
+        result = await delete_thread_data(thread_id=thread_id, request=request)
+        if not result.success or await thread_store.get(thread_id, user_id=user_id) is not None:
+            raise HTTPException(503, "对话尚未完整删除，请稍后重试。")
+    try:
+        BASE_SNAPSHOTS.drop_thread(user_id, thread_id)
+        await asyncio.to_thread(tracker.finish_thread_deletion, user_id, thread_id)
+    except Exception:
+        # The native thread may already be gone. Keep the owner-bound marker so
+        # a retry can finish cleanup without requiring a deleted metadata row.
+        raise HTTPException(503, "对话已删除，关联清理尚未完成，请重试完成清理。") from None
+    return {"deleted": True}
+
+
 @router.post("/opportunities/{opportunity_id}/threads", response_model=StoredOpportunity)
 @require_permission("runs", "create")
 async def link_opportunity_thread(opportunity_id: int, body: OpportunityThreadLink, request: Request) -> StoredOpportunity:
