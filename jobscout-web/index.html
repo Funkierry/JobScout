@@ -220,6 +220,7 @@
           <button id="trackerDensityBtn" type="button" class="secondary-btn tracker-density-btn" aria-pressed="true" title="切换表格显示密度">紧凑显示</button>
           <button id="trackerAddToggle" type="button" class="secondary-btn" aria-controls="trackerAddForm" aria-expanded="true">收起添加</button>
           <button id="trackerStagesBtn" type="button" class="secondary-btn">管理环节</button>
+          <button id="trackerMailBtn" type="button" class="secondary-btn">招聘邮件</button>
           <button id="trackerExportBtn" type="button" class="secondary-btn">导出 CSV</button>
           <button id="trackerRefreshAllBtn" type="button" class="primary-btn">更新全部</button>
         </div>
@@ -266,6 +267,12 @@
           <div><dt>查询页面</dt><dd><a id="trackerResultSource" target="_blank" rel="noopener noreferrer">打开官网页面 ↗</a></dd></div>
           <div><dt>检查时间</dt><dd id="trackerResultChecked"></dd></div>
         </dl>
+      </dialog>
+      <dialog id="trackerMailDialog" class="tracker-result-dialog" aria-labelledby="trackerMailTitle">
+        <div class="tracker-result-head"><h3 id="trackerMailTitle">招聘邮件</h3><button id="trackerMailClose" type="button" class="secondary-btn">关闭</button></div>
+        <p id="trackerMailStatus" role="status">正在读取邮件连接状态…</p>
+        <button id="trackerMailSync" type="button" class="primary-btn" disabled>同步招聘邮件</button>
+        <div id="trackerMailEvents" class="tracker-mail-events"></div>
       </dialog>
       <p id="trackerError" class="tracker-error hidden" role="alert"></p>
 

@@ -318,6 +318,37 @@ async def replace_match_candidates(thread_id: ThreadId, body: MatchCandidatesWri
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.get("/tracker/mail/config")
+@require_permission("runs", "read")
+async def tracker_mail_config(request: Request) -> dict:
+    from app.application_tracker.email.service import load_config
+
+    try:
+        config = await asyncio.to_thread(load_config, get_effective_user_id())
+    except Exception:
+        raise HTTPException(status_code=422, detail="本地邮件配置无效，请在本机检查。") from None
+    return {"enabled": config.enabled, "provider": config.provider, "sender_domain_count": len(config.sender_domains), "max_messages": config.max_messages}
+
+
+@router.get("/tracker/mail/events")
+@require_permission("runs", "read")
+async def tracker_mail_events(request: Request) -> list[dict]:
+    from app.application_tracker.email.store import MailStore
+
+    return await asyncio.to_thread(MailStore(_tracker_store()).list_events, get_effective_user_id())
+
+
+@router.post("/tracker/mail/sync")
+@require_permission("runs", "create")
+async def tracker_mail_sync(request: Request) -> dict:
+    from app.application_tracker.email.service import sync_mail
+
+    try:
+        return await asyncio.to_thread(sync_mail, _tracker_store(), get_effective_user_id())
+    except Exception:
+        raise HTTPException(status_code=503, detail="邮件同步未完成，请检查本地只读授权与连接配置。") from None
+
+
 @router.get(
     "/tracker/applications",
     response_model=list[StoredApplication],

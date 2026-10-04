@@ -11,6 +11,15 @@ function isTerminalTrackerStatus(status) {
   return TERMINAL_TRACKER_STATUSES.has(status);
 }
 
+function trackerDisplayRow(row) {
+  const source = row?.source_summary;
+  if (!source || source.conflict || source.source !== "email") return row;
+  return { ...row, portal_status: row.status, portal_evidence: row.evidence, status: source.status,
+    stage: row.stage_manual ? row.stage : source.status, raw_status: source.status,
+    evidence: source.evidence, checked_at: source.received_at, changed_at: source.received_at,
+    check_result: "成功", confidence: 1, changed: false };
+}
+
 function trackerRowPresentation(row) {
   const terminal = Boolean(row?.terminal) || isTerminalTrackerStatus(row?.status);
   const needsReview = Boolean(row?.checked_at) && Number(row?.confidence) < 0.7;
@@ -40,6 +49,7 @@ function trackerStageWaitText(row, now = new Date()) {
 }
 
 function trackerStageLabel(row) {
+  row = trackerDisplayRow(row);
   return row?.stage || row?.status || "未分类";
 }
 
@@ -739,6 +749,11 @@ function showTrackerDetails(row) {
   $("trackerResultMessage").textContent = Number(row.confidence) < 0.7 && row.checked_at
     ? "本次识别置信度较低，请核对官网页面。下方保留最近一次检查的原文。"
     : "这里显示最近一次检查保存的页面原文和识别结果；请以官网页面为准。";
+  if (row.source_summary) {
+    const source = row.source_summary;
+    $("trackerResultTitle").textContent = source.conflict ? "来源存在冲突 · 请核对" : "进度来源与依据";
+    $("trackerResultMessage").textContent = `${source.conflict ? "邮件与官网不能自动合并，保留双方记录。" : "邮件与官网分别保存，以下是邮件依据。"} 邮件：${source.email_status}；收件时间：${formatTrackerDate(source.received_at)}；安排时间：${source.event_at ? formatTrackerDate(source.event_at) : "未明确"}。原文：${source.evidence}`;
+  }
 }
 
 function setTrackerAddFormOpen(open) {
@@ -820,7 +835,8 @@ function renderTrackerRows() {
     }
   }
 
-  for (const row of visibleRows) {
+  for (const storedRow of visibleRows) {
+    const row = trackerDisplayRow(storedRow);
     const presentation = trackerRowPresentation(row);
     const tableRow = trackerElement("tr", `tracker-row tracker-row-${presentation.tone}`);
     tableRow.classList.add(`tracker-state-${presentation.statusTone}`);
@@ -862,8 +878,9 @@ function renderTrackerRows() {
     statusButton.classList.add("tracker-status-detail");
     statusButton.title = presentation.needsReview ? "识别需确认，查看页面依据" : "查看页面识别依据";
     statusButton.setAttribute("aria-label", `查看 ${row.company} ${row.role} 的页面识别依据${presentation.needsReview ? "，需确认" : ""}`);
-    statusButton.addEventListener("click", () => showTrackerDetails(row));
+    statusButton.addEventListener("click", () => showTrackerDetails(storedRow));
     statusCell.append(statusButton);
+    statusCell.append(trackerElement("small", row.source_summary?.conflict ? "tracker-review-label" : "tracker-raw", row.source_summary?.conflict ? "官网 / 邮件冲突 · 待核对" : row.source_summary?.source === "email" ? "来源：招聘邮件" : "来源：官网"));
     if (row.checked_at) statusCell.append(trackerElement("small", presentation.needsReview ? "tracker-review-label" : "tracker-raw", `${Math.round(Number(row.confidence) * 100)}%${presentation.needsReview ? " · 需确认" : " 置信度"}`));
     if (row.evidence) {
       const evidence = trackerElement("small", "tracker-raw", row.evidence);
@@ -955,6 +972,28 @@ async function loadTrackerApplications() {
 async function loadTrackerStages() {
   trackerStages = await apiJson("/api/jobscout/tracker/stages");
   renderTrackerRows();
+}
+
+async function openTrackerMail() {
+  const dialog = $("trackerMailDialog");
+  if (!dialog) return;
+  dialog.showModal();
+  const list = $("trackerMailEvents");
+  list.replaceChildren();
+  try {
+    const [config, events] = await Promise.all([apiJson("/api/jobscout/tracker/mail/config"), apiJson("/api/jobscout/tracker/mail/events")]);
+    $("trackerMailStatus").textContent = config.enabled ? `${config.provider.toUpperCase()} · ${config.sender_domain_count} 个招聘域名 · 每次最多 ${config.max_messages} 封` : "尚未启用。在本机完成只读授权并设置招聘发件域名后，即可同步邮件。";
+    $("trackerMailSync").disabled = !config.enabled || config.sender_domain_count === 0;
+    for (const event of events) {
+      const card = trackerElement("article", "tracker-mail-event");
+      card.append(trackerElement("strong", "", `${event.company || "待关联公司"} · ${event.role || "待关联岗位"}`));
+      card.append(trackerElement("p", "", event.review_reason ? "信息不完整或存在歧义，请核对原邮件并手动确认岗位进展。" : event.status));
+      if (event.quote) card.append(trackerElement("blockquote", "", event.quote));
+      card.append(trackerElement("small", "", `收件：${formatTrackerDate(event.received_at)}${event.event_at ? ` · 安排：${formatTrackerDate(event.event_at)}` : ""}`));
+      list.append(card);
+    }
+    if (!events.length) list.append(trackerElement("p", "empty-hint", "还没有招聘邮件事件。"));
+  } catch (error) { $("trackerMailStatus").textContent = error.message; }
 }
 
 function renderTrackerStageEditor() {
@@ -1084,6 +1123,18 @@ async function refreshAllTrackerRows() {
 }
 
 function setupTracker() {
+  $("trackerMailBtn")?.addEventListener("click", openTrackerMail);
+  $("trackerMailClose")?.addEventListener("click", () => $("trackerMailDialog").close());
+  $("trackerMailSync")?.addEventListener("click", async () => {
+    $("trackerMailSync").disabled = true;
+    try {
+      const result = await apiJson("/api/jobscout/tracker/mail/sync", { method: "POST" });
+      await loadTrackerApplications();
+      $("trackerMailDialog").close();
+      await openTrackerMail();
+      $("trackerMailStatus").textContent += ` · 新增 ${result.inserted} 条，待核对 ${result.review} 条`;
+    } catch (error) { $("trackerMailStatus").textContent = error.message; $("trackerMailSync").disabled = false; }
+  });
   try { trackerCompact = localStorage.getItem("jobscoutTrackerDensity") !== "comfortable"; } catch (_) { trackerCompact = true; }
   setTrackerCompact(trackerCompact);
   setTrackerAddFormOpen(true);
@@ -2184,6 +2235,7 @@ if (typeof module !== "undefined") {
     recommendedBaseRecords,
     withSkillPrefix,
     isTerminalTrackerStatus,
+    trackerDisplayRow,
     trackerRowPresentation,
     trackerIsSiteHomepage,
     trackerStageWaitText,

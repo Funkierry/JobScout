@@ -19,6 +19,7 @@ const {
   recommendedBaseRecords,
   withSkillPrefix,
   isTerminalTrackerStatus,
+  trackerDisplayRow,
   trackerRowPresentation,
   trackerIsSiteHomepage,
   trackerStageWaitText,
@@ -55,6 +56,12 @@ assert(escapedEvidenceHtml.includes("Python&#124;Spark") && !escapedEvidenceHtml
 console.log("PASS: JobScout mode and missing-guard fail-closed display");
 
 // ---- application tracker helpers ----
+const portalFixture = { status: "已投递", stage: "已投递", evidence: "官网已收到", source_summary: { source: "email", status: "面试（轮次待确认）", evidence: "面试邀请", received_at: "2026-10-04T00:00:00Z", conflict: false } };
+assert.strictEqual(trackerDisplayRow(portalFixture).status, "面试（轮次待确认）");
+assert.strictEqual(portalFixture.status, "已投递");
+assert.strictEqual(trackerStageLabel(portalFixture), "面试（轮次待确认）");
+assert.strictEqual(trackerDisplayRow({ ...portalFixture, stage_manual: true, stage: "准备材料" }).stage, "准备材料");
+assert.strictEqual(trackerDisplayRow({ ...portalFixture, source_summary: { ...portalFixture.source_summary, conflict: true } }).status, "已投递");
 assert.strictEqual(isTerminalTrackerStatus("Offer"), true);
 assert.strictEqual(trackerIsSiteHomepage("https://careers.example.com/"), true);
 assert.strictEqual(trackerIsSiteHomepage("https://careers.example.com/applications"), false);

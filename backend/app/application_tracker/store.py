@@ -56,10 +56,13 @@ class StoredApplication(BaseModel):
     changed: bool = False
     created_at: datetime
     updated_at: datetime
+    source_summary: dict | None = None
 
     @computed_field
     @property
     def terminal(self) -> bool:
+        if self.source_summary and not self.source_summary.get("conflict") and self.source_summary.get("source") == "email":
+            return self.source_summary.get("status") in {item.value for item in TERMINAL_STATUSES}
         return self.status in TERMINAL_STATUSES
 
     def to_input(self) -> ApplicationInput:
@@ -153,6 +156,8 @@ class ApplicationTrackerStore:
         return connection
 
     def _initialize(self) -> None:
+        from app.application_tracker.email.store import SCHEMA as MAIL_SCHEMA
+
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(
@@ -213,6 +218,7 @@ class ApplicationTrackerStore:
                 if name not in columns:
                     connection.execute(f"ALTER TABLE applications ADD COLUMN {name} {declaration}")
             connection.execute("UPDATE applications SET stage = status WHERE stage = ''")
+            connection.executescript(MAIL_SCHEMA)
             connection.execute("CREATE TABLE IF NOT EXISTS application_stages (user_id TEXT NOT NULL, name TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY(user_id, name), UNIQUE(user_id, position))")
             connection.executescript(
                 """
@@ -579,7 +585,9 @@ class ApplicationTrackerStore:
                 "SELECT * FROM applications WHERE user_id = ? ORDER BY id",
                 (user_id,),
             ).fetchall()
-        return [self._application_from_row(row) for row in rows]
+        from app.application_tracker.email.store import MailStore
+
+        return MailStore(self).decorate(user_id, [self._application_from_row(row) for row in rows])
 
     def get_application(self, user_id: str, application_id: int) -> StoredApplication | None:
         user_id = self._validated_user_id(user_id)
@@ -588,7 +596,11 @@ class ApplicationTrackerStore:
                 "SELECT * FROM applications WHERE user_id = ? AND id = ?",
                 (user_id, application_id),
             ).fetchone()
-        return None if row is None else self._application_from_row(row)
+        if row is None:
+            return None
+        from app.application_tracker.email.store import MailStore
+
+        return MailStore(self).decorate(user_id, [self._application_from_row(row)])[0]
 
     def save_check(
         self,
