@@ -1,10 +1,11 @@
-"""Orchestration for single and sequential batch tracker refreshes."""
+"""Orchestration for single and domain-concurrent batch tracker refreshes."""
 
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -54,9 +55,12 @@ class ProgressEvent:
 
 
 class TrackerUpdateService:
-    def __init__(self, *, store: ApplicationTrackerStore, agent: TrackerAgent) -> None:
+    def __init__(self, *, store: ApplicationTrackerStore, agent: TrackerAgent, concurrency: int | None = None) -> None:
         self._store = store
         self._agent = agent
+        self._concurrency = int(os.getenv("APPLICATION_TRACKER_BATCH_CONCURRENCY", "2")) if concurrency is None else concurrency
+        if not 1 <= self._concurrency <= 8:
+            raise ValueError("tracker batch concurrency must be between 1 and 8")
 
     async def refresh_one(
         self,
@@ -95,87 +99,46 @@ class TrackerUpdateService:
         total = len(pending)
         yield ProgressEvent(type="batch_started", total=total)
 
-        completed = 0
+        groups: dict[str, list[tuple[int, StoredApplication]]] = {}
         for index, application in enumerate(pending, start=1):
-            yield ProgressEvent(
-                type="row_started",
-                index=index,
-                total=total,
-                completed=completed,
-                application_id=application.id,
-                company=application.company,
-            )
-            browser_events: asyncio.Queue[BrowserEvent] = asyncio.Queue()
+            host = (urlsplit(application.url).hostname or "").lower().rstrip(".")
+            groups.setdefault(host, []).append((index, application))
+        domains: asyncio.Queue = asyncio.Queue()
+        for rows in groups.values():
+            domains.put_nowait(rows)
+        events: asyncio.Queue[ProgressEvent] = asyncio.Queue(maxsize=128)
 
-            async def on_browser_event(event: BrowserEvent) -> None:
-                await browser_events.put(event)
+        async def worker() -> None:
+            while not domains.empty():
+                rows = domains.get_nowait()
+                for index, application in rows:
+                    fields = {"index": index, "total": total, "application_id": application.id, "company": application.company}
+                    await events.put(ProgressEvent(type="row_started", **fields))
 
-            task = asyncio.create_task(
-                self._run_and_save(
-                    user_id,
-                    application,
-                    on_browser_event=on_browser_event,
-                )
-            )
-            try:
-                while not task.done():
+                    async def on_browser_event(event: BrowserEvent) -> None:
+                        await events.put(ProgressEvent(type="browser", message=event.message, **fields))
+
                     try:
-                        event = await asyncio.wait_for(browser_events.get(), timeout=0.1)
-                    except TimeoutError:
-                        continue
-                    yield ProgressEvent(
-                        type="browser",
-                        index=index,
-                        total=total,
-                        completed=completed,
-                        application_id=application.id,
-                        company=application.company,
-                        message=event.message,
-                    )
-                while not browser_events.empty():
-                    event = browser_events.get_nowait()
-                    yield ProgressEvent(
-                        type="browser",
-                        index=index,
-                        total=total,
-                        completed=completed,
-                        application_id=application.id,
-                        company=application.company,
-                        message=event.message,
-                    )
-                try:
-                    saved = await task
-                except Exception as exc:
+                        saved = await self._run_and_save(user_id, application, on_browser_event=on_browser_event)
+                        await events.put(ProgressEvent(type="row_completed", application=saved, **fields))
+                    except Exception as exc:
+                        await events.put(ProgressEvent(type="row_failed", message=f"检查失败，继续处理其余记录（{type(exc).__name__}）", **fields))
+
+        tasks = [asyncio.create_task(worker()) for _ in range(min(self._concurrency, len(groups)))]
+        completed = 0
+        try:
+            while completed < total:
+                event = await events.get()
+                if event.type in {"row_completed", "row_failed"}:
                     completed += 1
-                    yield ProgressEvent(
-                        type="row_failed",
-                        index=index,
-                        total=total,
-                        completed=completed,
-                        application_id=application.id,
-                        company=application.company,
-                        message=f"检查失败，已继续下一条（{type(exc).__name__}）",
-                    )
-                    continue
-            finally:
+                yield replace(event, completed=completed)
+            await asyncio.gather(*tasks)
+            yield ProgressEvent(type="batch_completed", total=total, completed=completed)
+        finally:
+            for task in tasks:
                 if not task.done():
                     task.cancel()
-                    await asyncio.gather(task, return_exceptions=True)
-            completed += 1
-            yield ProgressEvent(
-                type="row_completed",
-                index=index,
-                total=total,
-                completed=completed,
-                application_id=application.id,
-                company=application.company,
-                application=saved,
-            )
-        yield ProgressEvent(
-            type="batch_completed",
-            total=total,
-            completed=completed,
-        )
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _run_and_save(
         self,
@@ -188,6 +151,7 @@ class TrackerUpdateService:
             user_id,
             application,
             on_event=on_browser_event,
+            interactive_login=False,
         )
         return await asyncio.to_thread(
             self._store.save_check,
@@ -202,6 +166,7 @@ class TrackerUpdateService:
         application: StoredApplication,
         *,
         on_event: Any = None,
+        interactive_login: bool | None = None,
     ) -> StatusRecord:
         previous = application.to_previous_record()
         try:
@@ -210,6 +175,7 @@ class TrackerUpdateService:
                 user_id=user_id,
                 previous=previous,
                 on_event=on_event,
+                **({"interactive_login": interactive_login} if interactive_login is not None else {}),
             )
         except Exception:
             checked_at = datetime.now(UTC)

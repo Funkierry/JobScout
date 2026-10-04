@@ -13,6 +13,7 @@ EXPECTED_GUIDANCE_PATHS = {
     "backend/tests/AGENTS.md",
     "frontend/AGENTS.md",
     "backend/app/gateway/AGENTS.md",
+    "backend/app/application_tracker/AGENTS.md",
     "backend/app/channels/AGENTS.md",
     "backend/packages/harness/deerflow/AGENTS.md",
     "backend/packages/harness/deerflow/agents/AGENTS.md",
@@ -145,6 +146,7 @@ def test_repository_guidance_stays_below_hard_budgets_and_avoids_doc_indexes() -
 
 def test_local_guidance_files_contain_the_split_original_sections() -> None:
     expected_headings = {
+        "backend/app/application_tracker/AGENTS.md": "### Application tracker browser navigation",
         "backend/app/gateway/AGENTS.md": "### Gateway API (`app/gateway/`)",
         "backend/app/channels/AGENTS.md": "### IM Channels System (`app/channels/`)",
         "backend/packages/harness/deerflow/agents/AGENTS.md": "### Agent System",

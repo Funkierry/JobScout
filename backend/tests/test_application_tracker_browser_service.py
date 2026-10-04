@@ -155,7 +155,7 @@ async def test_public_page_uses_one_headless_context_and_no_llm(tmp_path: Path) 
     result = await service.fetch(
         "https://jobs.example.com/applications/42",
         user_id="local-user",
-        config=_config(tmp_path),
+        config=_config(tmp_path, interactive_login=False),
     )
 
     assert result.check_result is CheckResult.SUCCESS
@@ -166,29 +166,20 @@ async def test_public_page_uses_one_headless_context_and_no_llm(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
-async def test_login_reopens_same_profile_headed_then_headless(tmp_path: Path) -> None:
-    initial = FakePage(
-        "https://accounts.example.com/login",
-        has_password=True,
-        text="Sign in",
-    )
+async def test_login_reuses_one_headed_context_for_reading(tmp_path: Path) -> None:
     headed = FakePage(
         "https://accounts.example.com/login",
         has_password=True,
         text="Sign in",
     )
-    final = FakePage(
-        "https://jobs.example.com/applications/42",
-        text="Current application status: First interview",
-    )
-    contexts = [FakeContext(initial), FakeContext(headed), FakeContext(final)]
+    contexts = [FakeContext(headed)]
     launcher = FakeLauncher(contexts)
     events: list[BrowserEvent] = []
 
     async def complete_login(_: float) -> None:
         headed.url = "https://jobs.example.com/applications/42"
         headed.has_password = False
-        headed.text = "Signed in"
+        headed.text = "Current application status: First interview"
 
     service = PersistentBrowserService(launcher, sleep=complete_login)
     result = await service.fetch(
@@ -205,7 +196,7 @@ async def test_login_reopens_same_profile_headed_then_headless(tmp_path: Path) -
     assert result.check_result is CheckResult.SUCCESS
     assert result.login_attempted
     assert result.page_text == "Current application status: First interview"
-    assert [headless for _, headless, _ in launcher.calls] == [True, False, True]
+    assert [headless for _, headless, _ in launcher.calls] == [False]
     assert len({profile for profile, _, _ in launcher.calls}) == 1
     assert all(context.closed for context in contexts)
     assert [event.type for event in events] == [
@@ -216,20 +207,11 @@ async def test_login_reopens_same_profile_headed_then_headless(tmp_path: Path) -
 
 @pytest.mark.asyncio
 async def test_blank_headed_shell_waits_for_login_page_before_deciding(tmp_path: Path) -> None:
-    initial = FakePage(
-        "https://accounts.example.com/login",
-        has_password=True,
-        text="Sign in",
-    )
     headed = FakePage(
-        "https://jobs.example.com/applications/42",
+        "https://accounts.example.com/login",
         text="",
     )
-    final = FakePage(
-        "https://jobs.example.com/applications/42",
-        text="Current application status: First interview",
-    )
-    contexts = [FakeContext(initial), FakeContext(headed), FakeContext(final)]
+    contexts = [FakeContext(headed)]
     launcher = FakeLauncher(contexts)
     poll_count = 0
 
@@ -243,7 +225,7 @@ async def test_blank_headed_shell_waits_for_login_page_before_deciding(tmp_path:
         else:
             headed.url = "https://jobs.example.com/applications/42"
             headed.has_password = False
-            headed.text = "Signed in"
+            headed.text = "Current application status: First interview"
 
     service = PersistentBrowserService(launcher, sleep=advance_login)
     result = await service.fetch(
@@ -258,22 +240,17 @@ async def test_blank_headed_shell_waits_for_login_page_before_deciding(tmp_path:
 
     assert result.check_result is CheckResult.SUCCESS
     assert poll_count == 2
-    assert [headless for _, headless, _ in launcher.calls] == [True, False, True]
+    assert [headless for _, headless, _ in launcher.calls] == [False]
 
 
 @pytest.mark.asyncio
 async def test_agent_browser_keeps_the_authenticated_headed_context(tmp_path: Path) -> None:
-    initial = FakePage(
-        "https://accounts.example.com/login",
-        has_password=True,
-        text="Sign in",
-    )
     headed = FakePage(
         "https://accounts.example.com/login",
         has_password=True,
         text="Sign in",
     )
-    launcher = FakeLauncher([FakeContext(initial), FakeContext(headed)])
+    launcher = FakeLauncher([FakeContext(headed)])
 
     async def complete_login(_: float) -> None:
         headed.url = "https://jobs.example.com/applications/42"
@@ -300,16 +277,15 @@ async def test_agent_browser_keeps_the_authenticated_headed_context(tmp_path: Pa
     assert opened.check_result is CheckResult.LOGIN_REQUIRED
     assert result.check_result is CheckResult.SUCCESS
     assert result.page_text == "Current application status: First interview"
-    assert [headless for _, headless, _ in launcher.calls] == [True, False]
+    assert [headless for _, headless, _ in launcher.calls] == [False]
     assert headed.load_state_waits == [("networkidle", 3000), ("networkidle", 3000)]
-    assert headed.timeout_waits == [2000, 2000]
+    assert headed.timeout_waits == []
 
 
 @pytest.mark.asyncio
 async def test_agent_browser_opens_visible_login_from_portal_homepage(tmp_path: Path) -> None:
-    initial = FakePage("https://campus.example.com/", text="校园招聘\n登录 / 注册")
     headed = FakePage("https://campus.example.com/", text="校园招聘\n登录 / 注册")
-    launcher = FakeLauncher([FakeContext(initial), FakeContext(headed)])
+    launcher = FakeLauncher([FakeContext(headed)])
 
     async def complete_login(_: float) -> None:
         headed.text = "我的投递\n当前进度：笔试"
@@ -329,14 +305,13 @@ async def test_agent_browser_opens_visible_login_from_portal_homepage(tmp_path: 
 
     assert opened.check_result is CheckResult.LOGIN_REQUIRED
     assert result.check_result is CheckResult.SUCCESS
-    assert [headless for _, headless, _ in launcher.calls] == [True, False]
+    assert [headless for _, headless, _ in launcher.calls] == [False]
 
 
 @pytest.mark.asyncio
 async def test_login_timeout_returns_login_required_and_skips_reopen(tmp_path: Path) -> None:
-    initial = FakePage("https://accounts.example.com/login", has_password=True)
     headed = FakePage("https://accounts.example.com/login", has_password=True)
-    contexts = [FakeContext(initial), FakeContext(headed)]
+    contexts = [FakeContext(headed)]
     launcher = FakeLauncher(contexts)
     service = PersistentBrowserService(launcher)
 
@@ -348,7 +323,7 @@ async def test_login_timeout_returns_login_required_and_skips_reopen(tmp_path: P
 
     assert result.check_result is CheckResult.LOGIN_REQUIRED
     assert result.login_attempted
-    assert [headless for _, headless, _ in launcher.calls] == [True, False]
+    assert [headless for _, headless, _ in launcher.calls] == [False]
     assert all(context.closed for context in contexts)
 
 
@@ -367,8 +342,8 @@ async def test_headed_browser_failure_is_not_misreported_as_login_timeout(
     )
 
     assert result.check_result is CheckResult.FETCH_FAILED
-    assert result.error_code == "human_login_failed"
-    assert result.login_attempted
+    assert result.error_code == "navigation_failed"
+    assert not result.login_attempted
 
 
 @pytest.mark.asyncio
@@ -385,6 +360,50 @@ async def test_private_initial_url_is_rejected_before_browser_launch(tmp_path: P
     assert result.check_result is CheckResult.FETCH_FAILED
     assert result.error_code == "unsafe_url"
     assert launcher.calls == []
+
+
+@pytest.mark.asyncio
+async def test_headless_batch_login_does_not_open_a_second_window(tmp_path):
+    page = FakePage("https://accounts.example.com/login", has_password=True)
+    launcher = FakeLauncher([FakeContext(page)])
+    factory = PersistentAgentBrowserFactory(launcher)
+    browser = factory.create(url="https://jobs.example.com/applications", user_id="u", config=_config(tmp_path, interactive_login=False))
+    try:
+        first = await browser.open_page()
+        again = await browser.request_human_login()
+        assert first.check_result is again.check_result is CheckResult.LOGIN_REQUIRED
+        assert again.error_code == "interactive_login_required"
+        assert [headless for _, headless, _ in launcher.calls] == [True]
+    finally:
+        await browser.close()
+
+
+@pytest.mark.asyncio
+async def test_profile_lock_spans_request_factories_and_releases_on_cancel(tmp_path):
+    import asyncio
+
+    first_launcher = FakeLauncher([FakeContext(FakePage("https://jobs.example.com/applications", text="Current status: Assessment"))])
+    second_launcher = FakeLauncher([FakeContext(FakePage("https://jobs.example.com/applications", text="Current status: Assessment"))])
+    args = {"url": "https://jobs.example.com/applications", "user_id": "u", "config": _config(tmp_path, interactive_login=False)}
+    first = PersistentAgentBrowserFactory(first_launcher).create(**args)
+    second = PersistentAgentBrowserFactory(second_launcher).create(**args)
+    assert first._profile_lock is second._profile_lock
+    await first.open_page()
+    assert first._profile_lock.locked()
+    task = asyncio.create_task(second.open_page())
+    # Wait until the coroutine is actually blocked on the owned lock.
+    await asyncio.sleep(0)
+    assert not second_launcher.calls
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    await second.close()
+    assert first._profile_lock.locked()
+    await first.close()
+    assert not first._profile_lock.locked()
+    try:
+        assert (await second.open_page()).check_result is CheckResult.SUCCESS
+    finally:
+        await second.close()
 
 
 @pytest.mark.asyncio

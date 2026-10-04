@@ -19,12 +19,14 @@ from app.application_tracker.browser.models import (
     LoginState,
 )
 from app.application_tracker.browser.network import guard_route, validate_navigation_url
+from app.application_tracker.browser.observation import read_dom_text, wait_for_observation
 from app.application_tracker.browser.playwright_adapter import (
     BrowserDependencyError,
     PlaywrightPersistentContextLauncher,
 )
-from app.application_tracker.browser.profiles import profile_directory
+from app.application_tracker.browser.profiles import profile_directory, shared_profile_lock
 from app.application_tracker.models import CheckResult
+from app.application_tracker.observations import JsonCollector, SourceObservation, json_observations
 
 EventHandler = Callable[[BrowserEvent], Awaitable[None] | None]
 
@@ -42,6 +44,8 @@ class AgentBrowser(Protocol):
     async def open_page(self) -> BrowserAccessResult: ...
 
     async def get_page_text(self) -> str: ...
+
+    async def get_observations(self) -> tuple[SourceObservation, ...]: ...
 
     async def get_interactive_elements(self) -> list[InteractiveElement]: ...
 
@@ -95,6 +99,7 @@ class PersistentAgentBrowser:
         self._context: Any | None = None
         self._page: Any | None = None
         self._lock_acquired = False
+        self._collector: JsonCollector | None = None
 
     async def open_page(self) -> BrowserAccessResult:
         url_error = await validate_navigation_url(
@@ -111,7 +116,7 @@ class PersistentAgentBrowser:
                 exist_ok=True,
             )
             if self._context is None:
-                await self._open_context(headless=self._config.headless)
+                await self._open_context(headless=self._config.headless and not self._config.interactive_login)
             await self._navigate_target()
             return await self._current_result(login_attempted=False)
         except BrowserDependencyError:
@@ -121,7 +126,13 @@ class PersistentAgentBrowser:
 
     async def get_page_text(self) -> str:
         page = self._require_page()
-        return await page.locator("body").inner_text(timeout=self._config.page_text_timeout_ms)
+        return await read_dom_text(page, self._config)
+
+    async def get_observations(self) -> tuple[SourceObservation, ...]:
+        if self._collector is None:
+            return ()
+        await self._collector.drain()
+        return tuple(json_observations(self._collector.responses, page_url=self._url))
 
     async def get_interactive_elements(self) -> list[InteractiveElement]:
         page = self._require_page()
@@ -175,33 +186,22 @@ class PersistentAgentBrowser:
         locator = page.locator(f'[{self._ELEMENT_ATTRIBUTE}="{ref}"]')
         if await locator.count() != 1:
             raise ValueError("element ref is missing or stale; call get_page_text again")
+        await self._reset_collector()
         await locator.click(timeout=self._config.navigation_timeout_ms)
-        try:
-            await page.wait_for_load_state(
-                "domcontentloaded",
-                timeout=min(self._config.navigation_timeout_ms, 3_000),
-            )
-        except Exception:
-            pass
-        try:
-            await page.wait_for_load_state(
-                "networkidle",
-                timeout=min(self._config.navigation_timeout_ms, 3_000),
-            )
-        except Exception:
-            pass
-        await page.wait_for_timeout(min(self._config.page_text_timeout_ms, 500))
+        await wait_for_observation(page, self._config, after_click=True)
 
     async def screenshot(self) -> bytes:
         page = self._require_page()
         return await page.screenshot(type="png", full_page=False)
 
     async def request_human_login(self) -> BrowserAccessResult:
+        if not self._config.interactive_login:
+            return BrowserAccessResult(page_text="", check_result=CheckResult.LOGIN_REQUIRED, login_state=LoginState.LOGIN_REQUIRED, error_code="interactive_login_required")
         try:
             await self._ensure_profile_lock()
-            await self._close_context()
-            await self._open_context(headless=False)
-            await self._navigate_target()
+            if self._context is None:
+                await self._open_context(headless=False)
+                await self._navigate_target()
             await self._emit(
                 BrowserEvent(
                     BrowserEventType.HUMAN_LOGIN_REQUIRED,
@@ -264,10 +264,12 @@ class PersistentAgentBrowser:
             return self._failed("human_login_failed", login_attempted=True)
 
     async def close(self) -> None:
-        await self._close_context()
-        if self._lock_acquired:
-            self._profile_lock.release()
-            self._lock_acquired = False
+        try:
+            await self._close_context()
+        finally:
+            if self._lock_acquired:
+                self._profile_lock.release()
+                self._lock_acquired = False
 
     async def _ensure_profile_lock(self) -> None:
         if self._lock_acquired:
@@ -293,21 +295,13 @@ class PersistentAgentBrowser:
 
     async def _navigate_target(self) -> None:
         page = self._require_page()
+        await self._reset_collector()
         await page.goto(
             self._url,
             wait_until="domcontentloaded",
             timeout=self._config.navigation_timeout_ms,
         )
-        try:
-            await page.wait_for_load_state(
-                "networkidle",
-                timeout=min(self._config.navigation_timeout_ms, 3_000),
-            )
-        except Exception:
-            pass
-        # Recruitment portals often render an authenticated-looking shell and
-        # apply a client-side login redirect only after network-idle fires.
-        await page.wait_for_timeout(min(self._config.page_text_timeout_ms, 2_000))
+        await wait_for_observation(page, self._config)
 
     async def _current_result(self, *, login_attempted: bool) -> BrowserAccessResult:
         page = self._require_page()
@@ -321,6 +315,7 @@ class PersistentAgentBrowser:
             )
         return BrowserAccessResult(
             page_text=await self.get_page_text(),
+            observations=await self.get_observations(),
             check_result=CheckResult.SUCCESS,
             login_state=LoginState.AUTHENTICATED,
             login_attempted=login_attempted,
@@ -338,7 +333,19 @@ class PersistentAgentBrowser:
             raise RuntimeError("open_page must be called first")
         return self._page
 
+    async def _reset_collector(self) -> None:
+        if self._collector is not None:
+            if self._page is not None and hasattr(self._page, "remove_listener"):
+                self._page.remove_listener("response", self._collector.on_response)
+            await self._collector.close()
+        self._collector = JsonCollector(self._url, max_responses=self._config.max_json_responses, max_json_bytes=self._config.max_json_bytes)
+        if hasattr(self._page, "on"):
+            self._page.on("response", self._collector.on_response)
+
     async def _close_context(self) -> None:
+        if self._collector is not None:
+            await self._collector.close()
+            self._collector = None
         context, self._context, self._page = self._context, None, None
         if context is None:
             return
@@ -375,7 +382,6 @@ class PersistentAgentBrowserFactory:
     def __init__(self, launcher: Any | None = None) -> None:
         self._launcher = launcher or PlaywrightPersistentContextLauncher()
         self._detector = LoginDetector()
-        self._profile_locks: dict[Path, asyncio.Lock] = {}
 
     def create(
         self,
@@ -386,7 +392,7 @@ class PersistentAgentBrowserFactory:
         on_event: EventHandler | None = None,
     ) -> PersistentAgentBrowser:
         path = profile_directory(config.profile_root, user_id=user_id, url=url)
-        lock = self._profile_locks.setdefault(path, asyncio.Lock())
+        lock = shared_profile_lock(path)
         return PersistentAgentBrowser(
             url=url,
             profile_dir=path,

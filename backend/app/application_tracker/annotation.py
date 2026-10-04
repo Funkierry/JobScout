@@ -8,6 +8,7 @@ from pathlib import Path
 
 from app.application_tracker.evaluation import EvaluationCase
 from app.application_tracker.models import ApplicationStatus
+from app.application_tracker.observations import json_observations
 
 
 def case_from_snapshot(
@@ -30,6 +31,7 @@ def case_from_snapshot(
         role=role,
         url=metadata["final_url"],
         page_text=body_text,
+        observations=json_observations(json.loads((snapshot_dir / "responses.json").read_text(encoding="utf-8")), page_url=metadata["final_url"]) if (snapshot_dir / "responses.json").exists() else [],
         expected_status=expected_status,
         expected_role=expected_role,
         expected_applied_at=expected_applied_at,
@@ -48,3 +50,39 @@ def write_cases(path: Path, cases: list[EvaluationCase]) -> None:
         encoding="utf-8",
     )
     temporary.replace(path)
+
+
+def attach_snapshot_observations(cases: list[EvaluationCase], snapshot_root: Path) -> list[EvaluationCase]:
+    """Attach capture JSON to frozen labels in memory; never modify the labels.
+
+    Exact body + sanitized final URL matching avoids relying on private case-id
+    naming conventions. Ambiguous captures require explicit observations in labels.
+    """
+    import hashlib
+
+    from app.application_tracker.redaction import sanitize_url
+
+    snapshots: dict[tuple[str, str], list[Path]] = {}
+    for path in sorted(snapshot_root.glob("*/body.txt")):
+        if path.stat().st_size > 2_000_000 or not path.resolve().is_relative_to(snapshot_root.resolve()):
+            continue
+        metadata_path = path.parent / "metadata.json"
+        if not metadata_path.exists():
+            continue
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        body = path.read_text(encoding="utf-8")
+        key = (hashlib.sha256(body.encode()).hexdigest(), sanitize_url(metadata["final_url"]))
+        snapshots.setdefault(key, []).append(path.parent)
+    result = []
+    for case in cases:
+        key = (hashlib.sha256(case.page_text.encode()).hexdigest(), sanitize_url(case.url))
+        matches = snapshots.get(key, [])
+        if not case.observations and len(matches) > 1:
+            raise ValueError("Ambiguous snapshot match; explicitly label a single capture before replay")
+        if not case.observations and matches:
+            path = matches[0] / "responses.json"
+            if path.exists() and path.stat().st_size <= 26_000_000 and path.resolve().is_relative_to(snapshot_root.resolve()):
+                observations = json_observations(json.loads(path.read_text(encoding="utf-8")), page_url=case.url)
+                case = case.model_copy(update={"observations": observations})
+        result.append(case)
+    return result

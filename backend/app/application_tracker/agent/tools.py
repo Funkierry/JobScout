@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from app.application_tracker.browser.live_session import AgentBrowser
 from app.application_tracker.browser.models import BrowserAccessResult
+from app.application_tracker.confidence import assess_status, role_scope
 from app.application_tracker.dates import parse_grounded_applied_at
 from app.application_tracker.models import (
     ApplicationInput,
@@ -20,9 +21,9 @@ from app.application_tracker.models import (
     StatusExtraction,
     StatusRecord,
 )
-from app.application_tracker.status_semantics import normalize_generic_active_status
+from app.application_tracker.observations import SourceObservation, dom_observation
+from app.evidence.grounding import ground_excerpt
 
-_VISUAL_CONFIDENCE_CAP = 0.69
 _DESTRUCTIVE_CLICK_MARKERS = (
     "withdraw",
     "delete",
@@ -103,6 +104,7 @@ class ApplicationTrackerToolbox:
         self.max_page_chars = max_page_chars
         self.max_screenshot_bytes = max_screenshot_bytes
         self.page_text = ""
+        self.observations: tuple[SourceObservation, ...] = ()
         self.record: StatusRecord | None = None
         self.last_access: BrowserAccessResult | None = None
         self.screenshot_seen = False
@@ -113,10 +115,13 @@ class ApplicationTrackerToolbox:
     async def open_page(self) -> str:
         self.last_access = await self.browser.open_page()
         self.page_text = self.last_access.page_text[: self.max_page_chars]
+        self.observations = self.last_access.observations
+        self.screenshot_seen = False
         return await self._page_payload(action="opened")
 
     async def get_page_text(self) -> str:
         self.page_text = (await self.browser.get_page_text())[: self.max_page_chars]
+        await self._read_observations()
         return await self._page_payload(action="read")
 
     async def click(self, *, ref: int) -> str:
@@ -130,6 +135,8 @@ class ApplicationTrackerToolbox:
             raise ValueError("click blocked by the read-only application safety policy")
         await self.browser.click(ref)
         self.page_text = (await self.browser.get_page_text())[: self.max_page_chars]
+        self.screenshot_seen = False
+        await self._read_observations()
         return await self._page_payload(action=f"clicked_ref_{ref}")
 
     async def navigate_application_listing(self) -> bool:
@@ -156,6 +163,8 @@ class ApplicationTrackerToolbox:
         self.human_login_requested = True
         self.last_access = await self.browser.request_human_login()
         self.page_text = self.last_access.page_text[: self.max_page_chars]
+        self.observations = self.last_access.observations
+        self.screenshot_seen = False
         return await self._page_payload(action="human_login_finished")
 
     async def update_record(
@@ -184,27 +193,22 @@ class ApplicationTrackerToolbox:
         except ValidationError as exc:
             return self._error(f"invalid status fields: {exc.errors()[0]['msg']}")
 
-        grounded = self._is_grounded(extraction.raw_status) and self._is_grounded(extraction.evidence)
-        role_grounded = self._is_grounded(extraction.role_evidence) and self._is_grounded(extraction.detected_role)
+        sources = [*self.observations, dom_observation(self.page_text)]
+        # Vision can guide navigation, but a screenshot alone cannot verify text.
+        grounded = any(ground_excerpt(source.text, extraction.raw_status) is not None and ground_excerpt(source.text, extraction.evidence) is not None for source in sources)
+        role_grounded = any(ground_excerpt(source.text, extraction.role_evidence) is not None and ground_excerpt(source.text, extraction.detected_role) is not None for source in sources)
         if not role_grounded:
             return self._error("role_evidence must be copied from the current page text")
         if not grounded:
             if not self.screenshot_seen:
                 return self._error("raw_status and evidence must be copied from the current page text")
-            confidence = min(extraction.confidence, _VISUAL_CONFIDENCE_CAP)
-        else:
-            confidence = extraction.confidence
-
-        status, confidence = normalize_generic_active_status(
-            extraction.status,
-            raw_status=extraction.raw_status,
-            evidence=extraction.evidence,
-            confidence=confidence,
-        )
+            extraction = extraction.model_copy(update={"status": ApplicationStatus.UNKNOWN, "raw_status": "", "evidence": "", "applied_at": "", "applied_at_evidence": ""})
+        assessment = assess_status(extraction.status, raw_status=extraction.raw_status, evidence=extraction.evidence, role=extraction.detected_role or self.application.role, sources=sources)
+        status, confidence = assessment.status, assessment.confidence
         parsed_applied_at, grounded_applied_at_evidence = parse_grounded_applied_at(
             extraction.applied_at,
             extraction.applied_at_evidence,
-            page_text=self.page_text,
+            page_text=assessment.source_text or role_scope(dom_observation(self.page_text), extraction.detected_role or self.application.role),
             checked_at=self.checked_at,
         )
 
@@ -231,6 +235,13 @@ class ApplicationTrackerToolbox:
             ensure_ascii=False,
         )
 
+    async def _read_observations(self) -> None:
+        observe = getattr(self.browser, "get_observations", None)
+        self.observations = tuple(await observe()) if observe is not None else ()
+
+    def extraction_kwargs(self) -> dict[str, Any]:
+        return {"observations": self.observations} if self.observations else {}
+
     def accept_fast_path_record(self, record: StatusRecord) -> None:
         self.record = record
 
@@ -254,6 +265,7 @@ class ApplicationTrackerToolbox:
                 "action": action,
                 "check_result": CheckResult.SUCCESS.value,
                 "page_text": self.page_text,
+                "untrusted_json_observations": [item.model_dump() for item in self.observations],
                 "interactive_elements": [{"ref": item.ref, "role": item.role, "name": item.name} for item in elements],
             },
             ensure_ascii=False,

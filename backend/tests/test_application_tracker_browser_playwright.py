@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -20,6 +21,21 @@ class QuietFixtureHandler(SimpleHTTPRequestHandler):
         del format, args
 
     def do_GET(self) -> None:
+        if self.path == "/api/applications":
+            payload = json.dumps({"applications": [{"role": "产品经理", "status": "已投递", "token": "synthetic-secret"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        if self.path == "/noisy-json":
+            self._send_html(
+                "<nav>" + "导航推荐 " * 20000 + "</nav><main><p>产品经理 当前状态：已投递</p>"
+                '<div class="recommendations">推荐岗位 Offer</div><button>查看详情</button></main><footer>页脚</footer>'
+                '<script>setTimeout(() => fetch("/api/applications"), 50)</script>'
+            )
+            return
         if self.path == "/seed-session":
             self._send_html(
                 "Session seeded",
@@ -63,6 +79,7 @@ async def test_real_playwright_reads_a_local_status_fixture(tmp_path: Path) -> N
             f"http://127.0.0.1:{port}/status.html",
             user_id="integration-test-user",
             config=BrowserAccessConfig(
+                interactive_login=False,
                 profile_root=tmp_path / "browser_profile",
                 allow_private_addresses=True,
             ),
@@ -91,6 +108,7 @@ async def test_real_playwright_reuses_cookie_from_the_same_profile(
     thread.start()
     service = PersistentBrowserService()
     config = BrowserAccessConfig(
+        interactive_login=False,
         profile_root=tmp_path / "browser_profile",
         allow_private_addresses=True,
         login_timeout_seconds=0,
@@ -136,6 +154,7 @@ async def test_real_agent_browser_can_observe_click_and_capture(
         url=f"http://127.0.0.1:{port}/agent_details.html",
         user_id="agent-integration-test-user",
         config=BrowserAccessConfig(
+            interactive_login=False,
             profile_root=tmp_path / "browser_profile",
             allow_private_addresses=True,
         ),
@@ -173,7 +192,7 @@ async def test_real_agent_browser_reads_application_tab_after_click(tmp_path: Pa
     browser = factory.create(
         url=f"http://127.0.0.1:{server.server_address[1]}/application-tabs",
         user_id="application-tabs-test-user",
-        config=BrowserAccessConfig(profile_root=tmp_path / "browser_profile", allow_private_addresses=True),
+        config=BrowserAccessConfig(profile_root=tmp_path / "browser_profile", interactive_login=False, allow_private_addresses=True),
     )
     try:
         opened = await browser.open_page()
@@ -192,3 +211,31 @@ async def test_real_agent_browser_reads_application_tab_after_click(tmp_path: Pa
         pytest.skip("Playwright Chromium is not installed")
     assert tab.role == "tab"
     assert "产品经理 已投递" in updated_text
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_delayed_json_and_noise_reduction_preserve_live_refs(tmp_path):
+    server = ThreadingHTTPServer(("127.0.0.1", 0), QuietFixtureHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    factory = PersistentAgentBrowserFactory()
+    browser = factory.create(url=f"http://127.0.0.1:{server.server_address[1]}/noisy-json", user_id="fixture", config=BrowserAccessConfig(profile_root=tmp_path, interactive_login=False, allow_private_addresses=True))
+    try:
+        result = await browser.open_page()
+        if result.error_code == "browser_unavailable":
+            pytest.skip("Playwright Chromium is not installed")
+        assert result.check_result is CheckResult.SUCCESS
+        assert "产品经理 当前状态：已投递" in result.page_text
+        assert "导航推荐" not in result.page_text and "推荐岗位" not in result.page_text and "页脚" not in result.page_text
+        assert len(result.observations) == 1
+        assert "synthetic-secret" not in result.observations[0].text
+        elements = await browser.get_interactive_elements()
+        assert any(element.name == "查看详情" for element in elements)
+        assert "导航推荐" in await browser._page.locator("body").inner_text()
+    finally:
+        await browser.close()
+        await factory.aclose()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

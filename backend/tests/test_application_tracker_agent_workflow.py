@@ -211,6 +211,26 @@ async def test_clear_page_uses_extractor_without_calling_planner(tmp_path: Any) 
 
 
 @pytest.mark.asyncio
+async def test_json_only_observation_takes_rule_scored_fast_path(tmp_path):
+    from test_application_tracker_extractor import StubStructuredModel
+
+    from app.application_tracker.extractor import StatusExtractor
+    from app.application_tracker.observations import SourceObservation
+
+    class JsonBrowser(FakeBrowser):
+        async def open_page(self):
+            return BrowserAccessResult(page_text="", check_result=CheckResult.SUCCESS, login_state=LoginState.AUTHENTICATED, observations=(SourceObservation(kind="json", text="role: AI Product Manager\nstatus: Assessment"),))
+
+    browser = JsonBrowser(page_text="")
+    model = StubStructuredModel({"status": "测评", "raw_status": "Assessment", "evidence": "status: Assessment", "confidence": 0.01})
+    planner = StubPlanner()
+    agent = ApplicationTrackerAgent(model=planner, extractor=StatusExtractor(model), browser_factory=FakeBrowserFactory(browser))
+    result = await agent.run(_application(), user_id="u", browser_config=_browser_config(tmp_path))
+    assert result.status is ApplicationStatus.ASSESSMENT and result.confidence >= 0.7
+    assert planner.calls == [] and browser.closed
+
+
+@pytest.mark.asyncio
 async def test_agent_can_click_details_then_update_record(tmp_path: Any) -> None:
     browser = FakeBrowser(
         page_text="Application overview",
@@ -266,7 +286,7 @@ async def test_agent_can_click_details_then_update_record(tmp_path: Any) -> None
     )
 
     assert result.status is ApplicationStatus.FIRST_INTERVIEW
-    assert result.confidence == 0.9
+    assert result.confidence == 0.8
     assert browser.clicks == [3]
     assert len(planner.calls) == 2
 
@@ -346,7 +366,7 @@ async def test_agent_click_reextracts_application_list_before_single_record_upda
 
 
 @pytest.mark.asyncio
-async def test_screenshot_is_forwarded_to_vision_model_and_marked_low_confidence(
+async def test_screenshot_is_forwarded_but_unverifiable_status_remains_unknown(
     tmp_path: Any,
 ) -> None:
     browser = FakeBrowser(page_text="")
@@ -393,8 +413,8 @@ async def test_screenshot_is_forwarded_to_vision_model_and_marked_low_confidence
         browser_config=_browser_config(tmp_path),
     )
 
-    assert result.status is ApplicationStatus.ASSESSMENT
-    assert result.confidence == 0.69
+    assert result.status is ApplicationStatus.UNKNOWN
+    assert result.confidence == 0
     assert browser.screenshot_calls == 1
     assert any(isinstance(message, HumanMessage) and isinstance(message.content, list) and any(block.get("type") == "image_url" for block in message.content) for message in planner.calls[1])
 

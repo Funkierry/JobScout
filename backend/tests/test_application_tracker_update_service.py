@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -89,7 +90,7 @@ async def test_refresh_all_groups_domains_skips_terminal_and_emits_progress(
         ),
     )
     agent = FakeAgent()
-    service = TrackerUpdateService(store=store, agent=agent)
+    service = TrackerUpdateService(store=store, agent=agent, concurrency=1)
 
     events = [event async for event in service.stream_refresh_all("user-1")]
 
@@ -152,3 +153,88 @@ async def test_refresh_one_persists_an_agent_failure_as_check_history(tmp_path: 
     assert outcome.application.status is ApplicationStatus.UNKNOWN
     assert len(history) == 1
     assert history[0].check_result is CheckResult.FETCH_FAILED
+
+
+@pytest.mark.asyncio
+async def test_domains_overlap_but_same_host_is_serial_and_progress_monotonic(tmp_path):
+    store = ApplicationTrackerStore(tmp_path / "tracker.db")
+    store.import_applications("u", [_row("A1", "https://a.example/1"), _row("A2", "https://a.example/2"), _row("B", "https://b.example/1")])
+    started, release = asyncio.Event(), asyncio.Event()
+    active, maximum = set(), 0
+
+    class Agent(FakeAgent):
+        async def run(self, application, **kwargs):
+            nonlocal maximum
+            host = application.url.split("/")[2]
+            assert host not in active
+            assert kwargs["interactive_login"] is False
+            active.add(host)
+            maximum = max(maximum, len(active))
+            if len(active) == 2:
+                started.set()
+            await release.wait()
+            try:
+                return await super().run(application, **kwargs)
+            finally:
+                active.remove(host)
+
+    service = TrackerUpdateService(store=store, agent=Agent(), concurrency=2)
+
+    async def consume():
+        return [event async for event in service.stream_refresh_all("u")]
+
+    task = asyncio.create_task(consume())
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        release.set()
+        events = await asyncio.wait_for(task, 2)
+    finally:
+        release.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert maximum == 2
+    assert [e.completed for e in events] == sorted(e.completed for e in events)
+    assert events[-1].completed == 3
+
+
+@pytest.mark.asyncio
+async def test_closing_batch_cancels_every_active_worker(tmp_path):
+    store = ApplicationTrackerStore(tmp_path / "tracker.db")
+    store.import_applications("u", [_row("A", "https://a.example/1"), _row("B", "https://b.example/1")])
+    both = asyncio.Event()
+    active, cancelled = set(), set()
+
+    class Agent:
+        async def run(self, application, **kwargs):
+            active.add(application.company)
+            if len(active) == 2:
+                both.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.add(application.company)
+
+    stream = TrackerUpdateService(store=store, agent=Agent(), concurrency=2).stream_refresh_all("u")
+    assert (await anext(stream)).type == "batch_started"
+    assert (await anext(stream)).type == "row_started"
+    await asyncio.wait_for(both.wait(), 2)
+    await stream.aclose()
+    assert cancelled == {"A", "B"}
+
+
+@pytest.mark.asyncio
+async def test_one_failed_domain_does_not_stop_other_domains(tmp_path):
+    store = ApplicationTrackerStore(tmp_path / "tracker.db")
+    store.import_applications("u", [_row("A", "https://a.example/1"), _row("B", "https://b.example/1")])
+
+    class Agent(FakeAgent):
+        async def run(self, application, **kwargs):
+            if application.company == "A":
+                raise RuntimeError("synthetic failure")
+            return await super().run(application, **kwargs)
+
+    events = [e async for e in TrackerUpdateService(store=store, agent=Agent()).stream_refresh_all("u")]
+    results = {e.company: e.application for e in events if e.type == "row_completed"}
+    assert results["A"].check_result is CheckResult.FETCH_FAILED
+    assert results["B"].check_result is CheckResult.SUCCESS
+    assert events[-1].completed == 2

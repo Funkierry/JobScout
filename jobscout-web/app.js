@@ -1032,9 +1032,9 @@ function applyTrackerProgressEvent(event) {
   const completed = Number(event.completed || 0);
   const total = Number(event.total || 0);
   if (event.type === "batch_started") {
-    setTrackerProgress(total ? "准备逐条检查" : "没有需要更新的记录", 0, total, true);
+    setTrackerProgress(total ? "准备按站点分组检查" : "没有需要更新的记录", 0, total, true);
   } else if (event.type === "row_started") {
-    setTrackerProgress(`正在检查 ${event.company || "当前岗位"}（第 ${event.index} 条 / 共 ${total} 条）`, completed, total, true);
+    setTrackerProgress(`正在检查 ${event.company || "当前岗位"}（已完成 ${completed} / ${total} 条）`, completed, total, true);
   } else if (event.type === "browser") {
     setTrackerProgress(event.message || `正在检查 ${event.company || "当前岗位"}`, completed, total, true);
   } else if (event.type === "row_completed") {
@@ -1044,7 +1044,7 @@ function applyTrackerProgressEvent(event) {
     }
     setTrackerProgress(`${event.company || "当前岗位"}检查完成`, completed, total, true);
   } else if (event.type === "row_failed") {
-    setTrackerProgress(`${event.company || "当前岗位"}检查失败，继续下一条`, completed, total, true);
+    setTrackerProgress(`${event.company || "当前岗位"}检查失败，继续处理其余记录`, completed, total, true);
   } else if (event.type === "batch_completed") {
     setTrackerProgress(`更新完成，共处理 ${completed} 条`, completed, total, true);
   }

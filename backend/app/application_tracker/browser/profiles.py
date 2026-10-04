@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
 from urllib.parse import urlsplit
+from weakref import WeakKeyDictionary, WeakValueDictionary
 
 
 def _digest(value: str) -> str:
@@ -19,3 +21,14 @@ def profile_directory(root: Path, *, user_id: str, url: str) -> Path:
     if not hostname:
         raise ValueError("url must contain a hostname")
     return root / f"user-{_digest(user_id)}" / f"site-{_digest(hostname.lower())}"
+
+
+# Profile locks span request-scoped factories in the same event loop. Weak loop
+# keys avoid leaking test/server loops, and no private page data is retained.
+
+_PROFILE_LOCKS = WeakKeyDictionary()
+
+
+def shared_profile_lock(path: Path) -> asyncio.Lock:
+    locks = _PROFILE_LOCKS.setdefault(asyncio.get_running_loop(), WeakValueDictionary())
+    return locks.setdefault(path.resolve(), asyncio.Lock())

@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Annotated, Any, Protocol, TypedDict
 from urllib.parse import urlsplit, urlunsplit
@@ -154,6 +154,7 @@ class ApplicationTrackerAgent:
         user_id: str,
         previous: StatusRecord | None = None,
         browser_config: BrowserAccessConfig | None = None,
+        interactive_login: bool | None = None,
         on_event: EventHandler | None = None,
         checked_at: datetime | None = None,
     ) -> StatusRecord:
@@ -161,6 +162,8 @@ class ApplicationTrackerAgent:
         if checked_at.tzinfo is None or checked_at.utcoffset() is None:
             raise ValueError("checked_at must be timezone-aware")
         settings = browser_config or BrowserAccessConfig.from_env()
+        if interactive_login is not None:
+            settings = replace(settings, interactive_login=interactive_login)
         browser = self._browser_factory.create(
             url=application.url,
             user_id=user_id,
@@ -220,7 +223,7 @@ class ApplicationTrackerAgent:
             access = toolbox.last_access
             if access is None or access.check_result is not CheckResult.SUCCESS:
                 return "finalize"
-            if bool(state.get("page_text", "").strip()):
+            if bool(state.get("page_text", "").strip()) or toolbox.observations:
                 return "extract"
             return "prepare_agent"
 
@@ -231,6 +234,7 @@ class ApplicationTrackerAgent:
                 state.get("page_text", ""),
                 previous=previous,
                 checked_at=checked_at,
+                **toolbox.extraction_kwargs(),
             )
             if self._accept_fast_path(candidate):
                 toolbox.accept_fast_path_record(candidate)
@@ -385,6 +389,7 @@ class ApplicationTrackerAgent:
                 state.get("page_text", ""),
                 previous=previous,
                 checked_at=checked_at,
+                **toolbox.extraction_kwargs(),
             )
             if self._accept_fast_path(candidate):
                 toolbox.accept_fast_path_record(candidate)
@@ -453,7 +458,7 @@ class ApplicationTrackerAgent:
         if record.check_result is not CheckResult.SUCCESS:
             return False
         if record.discovered_applications:
-            return all(item.confidence >= self._run_config.confidence_threshold for item in record.discovered_applications)
+            return all(item.status is not ApplicationStatus.UNKNOWN and item.confidence >= self._run_config.confidence_threshold for item in record.discovered_applications)
         return record.status is not ApplicationStatus.UNKNOWN and record.confidence >= self._run_config.confidence_threshold
 
     @staticmethod

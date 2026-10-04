@@ -54,9 +54,9 @@ The Gateway must allow `http://localhost:5500` in `GATEWAY_CORS_ORIGINS`.
 ## Application progress tracker
 
 Choose **进度追踪**, add a company and a personal application list or detail URL,
-then select **添加并识别**. If the page requires authentication, the tracker
-opens a browser window for you to complete login or verification manually. It
-then reads the authorized page and saves the detected role title, current stage,
+then select **添加并识别**. An individual check opens one browser window and
+reuses it for manual login or verification when needed. It reads the authorized
+page and same-host application JSON, then saves the detected role title, current stage,
 source evidence, and check time to the tracker table. The application date is
 read from the official page when its quoted submission evidence supports it;
 there is no date field to fill in the add form.
@@ -70,8 +70,12 @@ When one application-list page clearly pairs multiple applied roles with their
 own statuses, the tracker creates a separate row for each role. Refreshes update
 those rows using the role title as the identity, so the same listing does not
 create duplicates. Once a concrete role is saved, the unidentified placeholder
-for that same page is removed. It only records roles and statuses supported by visible page
-text. The table shows the current-stage wait as a lower bound from the first
+for that same page is removed. Roles and statuses require verbatim DOM or JSON
+evidence in the same application record; confidence comes from code rules.
+Batch refresh processes each host serially and at most two host groups concurrently
+(configurable). Expired sessions are marked **需登录** for a subsequent individual check.
+See [tracker stability](../docs/jobscout/tracker-stability.md) for limits and replay commands.
+The table shows the current-stage wait as a lower bound from the first
 time that stage was detected, not as a claimed official stage-start date. It
 supports individual or batch refresh, company/role inline edits, custom
 stages, deletion, and CSV export. Data is stored in the Gateway's per-user

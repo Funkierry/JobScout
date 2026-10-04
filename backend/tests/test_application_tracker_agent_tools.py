@@ -241,7 +241,7 @@ async def test_agent_update_reads_application_date_from_current_page() -> None:
 
 
 @pytest.mark.asyncio
-async def test_screenshot_allows_visual_evidence_but_caps_confidence() -> None:
+async def test_screenshot_only_evidence_requires_review() -> None:
     toolbox = _toolbox(FakeBrowser(page_text=""))
 
     screenshot = await toolbox.screenshot()
@@ -255,5 +255,16 @@ async def test_screenshot_allows_visual_evidence_but_caps_confidence() -> None:
     assert isinstance(screenshot, ScreenshotObservation)
     assert screenshot.media_type == "image/png"
     assert toolbox.record is not None
-    assert toolbox.record.confidence == 0.69
+    assert toolbox.record.confidence == 0
     assert '"updated": true' in result
+
+
+@pytest.mark.asyncio
+async def test_tool_update_rejects_cross_role_evidence_even_with_high_model_confidence():
+    from app.application_tracker.models import ApplicationInput
+
+    toolbox = ApplicationTrackerToolbox(application=ApplicationInput(company="Example", role="产品经理", url="https://jobs.example/a"), browser=FakeBrowser(page_text="岗位：产品经理\n状态：已投递\n\n岗位：开发工程师\n状态：未通过"))
+    await toolbox.open_page()
+    await toolbox.update_record(status=ApplicationStatus.REJECTED, raw_status="未通过", evidence="状态：未通过", confidence=0.99)
+    assert toolbox.record.status is ApplicationStatus.UNKNOWN
+    assert toolbox.record.confidence == 0

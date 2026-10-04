@@ -34,6 +34,8 @@
 
 阶段 2 已加入结构化证据校验、固定报告模板和基于简历原文的 Base 计分。启用方式与限制见 [证据校验说明](docs/jobscout/evidence-guard.md)，实际离线验证见 [指标记录](docs/jobscout/metrics.md)。真实模型效果仍待运行。
 
+投递追踪已接入同站 JSON 优先观察、正文稳定等待、规则置信度和按站点限量并发。单条检查复用可见浏览器完成登录；批量检查遇到失效登录会标记“需登录”。配置与离线对照方法见 [Tracker 稳定性说明](docs/jobscout/tracker-stability.md)。
+
 阶段 3 增加主 Agent 之前的入口分类、持久化目标锚点与模式工具白名单。JobScout 页面使用专属入口；部署时设置 `JOBSCOUT_ENFORCE_THREAD_BINDING=1`，保证已绑定线程不能切回通用 Agent 绕过分类。可选的便宜分类模型由 `JOBSCOUT_INTENT_MODEL` 指定，未配置时模糊请求直接澄清。详见 [入口与路由说明](docs/jobscout/entry-routing.md)。
 
 ## ✨ 为什么是 JobScout

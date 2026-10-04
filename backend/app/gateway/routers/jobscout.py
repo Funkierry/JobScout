@@ -476,7 +476,7 @@ async def refresh_tracker_application(
 
 @router.post(
     "/tracker/refresh-all",
-    summary="Sequentially refresh all non-terminal applications",
+    summary="Refresh non-terminal applications with bounded cross-domain concurrency",
 )
 @require_permission("runs", "create")
 async def refresh_all_tracker_applications(request: Request) -> StreamingResponse:

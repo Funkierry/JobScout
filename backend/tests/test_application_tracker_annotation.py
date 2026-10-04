@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.application_tracker.annotation import case_from_snapshot, write_cases
+from app.application_tracker.annotation import attach_snapshot_observations, case_from_snapshot, write_cases
 from app.application_tracker.io import load_evaluation_cases
 from app.application_tracker.models import ApplicationStatus
 
@@ -47,3 +47,22 @@ def test_annotation_rejects_duplicate_case_ids(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="Duplicate case_id"):
         write_cases(tmp_path / "labels.jsonl", [case, case])
+
+
+def test_replay_attaches_json_without_mutating_labels_or_using_expected_status(tmp_path):
+    snapshot = tmp_path / "snapshot-1"
+    snapshot.mkdir()
+    (snapshot / "metadata.json").write_text(json.dumps({"final_url": "https://jobs.example/applications"}), encoding="utf-8")
+    (snapshot / "body.txt").write_text("产品经理 当前状态：已投递", encoding="utf-8")
+    case = case_from_snapshot(snapshot, case_id="one", company="Example", role="产品经理", expected_status=ApplicationStatus.APPLIED, expected_role="产品经理", expected_applied_at=None)
+    (snapshot / "responses.json").write_text(json.dumps([{"url": "https://jobs.example/api", "status": 200, "body": {"role": "产品经理", "status": "已投递"}}]), encoding="utf-8")
+    attached = attach_snapshot_observations([case], tmp_path)
+    assert not case.observations and len(attached[0].observations) == 1
+    assert "expected_status" not in attached[0].observations[0].text
+    # Duplicate captures must not be chosen arbitrarily.
+    second = tmp_path / "snapshot-2"
+    second.mkdir()
+    for name in ["metadata.json", "body.txt"]:
+        (second / name).write_bytes((snapshot / name).read_bytes())
+    with pytest.raises(ValueError, match="Ambiguous"):
+        attach_snapshot_observations([case], tmp_path)

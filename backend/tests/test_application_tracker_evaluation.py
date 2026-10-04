@@ -5,6 +5,7 @@ import pytest
 from app.application_tracker.evaluation import EvaluationCase, evaluate_cases
 from app.application_tracker.extractor import StatusExtractor
 from app.application_tracker.models import ApplicationStatus, CheckResult, DiscoveredApplication, StatusRecord
+from app.application_tracker.observations import SourceObservation
 
 
 class StubExtractor:
@@ -13,6 +14,24 @@ class StubExtractor:
 
     def extract(self, *_args, **_kwargs) -> StatusRecord:
         return next(self._records)
+
+
+def test_evaluation_json_grounding_and_usage_follow_actual_observations():
+    from test_application_tracker_extractor import StubStructuredModel
+
+    case = EvaluationCase(
+        case_id="json", company="Example", role="产品经理", url="https://jobs.example/a", page_text="空白外壳", observations=[SourceObservation(kind="json", text="role: 产品经理\nstatus: 已投递")], expected_status=ApplicationStatus.APPLIED
+    )
+    model = StubStructuredModel({"status": "已投递", "raw_status": "已投递", "evidence": "status: 已投递", "confidence": 0.01})
+
+    # This fake has no provider usage. Do not invent token/cost numbers.
+    class CallbackModel:
+        def invoke(self, messages, **kwargs):
+            return model.invoke(messages)
+
+    report = evaluate_cases([case], StatusExtractor(CallbackModel()))
+    assert report.status_accuracy == 1 and report.verbatim_evidence_rate == 1
+    assert report.total_input_tokens is None and report.total_cost_usd is None
 
 
 def _record(status: ApplicationStatus, *, evidence: str, result: CheckResult = CheckResult.SUCCESS) -> StatusRecord:

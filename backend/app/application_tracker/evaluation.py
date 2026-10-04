@@ -128,7 +128,7 @@ def evaluate_cases(
         started = perf_counter()
         try:
             if isinstance(extractor, StatusExtractor):
-                extracted = extractor.extract(application, case.page_text, callbacks=[collector])
+                extracted = extractor.extract(application, case.page_text, callbacks=[collector], observations=case.observations)
             else:
                 extracted = extractor.extract(application, case.page_text)
             record = extracted if isinstance(extracted, StatusRecord) else StatusRecord.model_validate(extracted)
@@ -154,7 +154,7 @@ def evaluate_cases(
             predicted_status = record.status
             evidence = record.evidence
         allow_empty = predicted_status is ApplicationStatus.UNKNOWN
-        grounded = bool(record) and is_evidence_grounded(case.page_text, evidence, allow_empty=allow_empty)
+        grounded = bool(record) and any(is_evidence_grounded(text, evidence, allow_empty=allow_empty) for text in [case.page_text, *(item.text for item in case.observations)])
         evidence_eligible = bool(record) and (predicted_status is not ApplicationStatus.UNKNOWN or bool(evidence))
         usage = collector.usage if collector.usage.calls_with_usage else None
         cost = None
