@@ -14,7 +14,7 @@ function element(tag = "div") {
 
 async function main() {
   const chat = element();
-  const context = vm.createContext({ console, TextDecoder, module: { exports: {} } });
+  const context = vm.createContext({ console, TextDecoder, URL, URLSearchParams, require, module: { exports: {} } });
   vm.runInContext(fs.readFileSync(path.join(__dirname, "app.js"), "utf8"), context);
   context.document = { createElement: element, getElementById: () => chat };
   context.bubbles = [];

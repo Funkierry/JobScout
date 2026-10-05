@@ -4,7 +4,7 @@ import json
 from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
-from test_ui import ROOT
+from test_ui import ROOT, page_payload
 
 
 def main():
@@ -31,13 +31,24 @@ def main():
             if url.netloc != "jobs.example.test":
                 unexpected.append(request.url)
                 r.abort()
-            elif path in ("/", "/app.js", "/runtime-config.js", "/style.css"):
+            elif path in (
+                "/",
+                "/app.js",
+                "/core.js",
+                "/tracker-state.js",
+                "/api-client.js",
+                "/runtime-config.js",
+                "/style.css",
+            ):
                 name = "index.html" if path == "/" else path[1:]
                 r.fulfill(
                     path=str(ROOT / name),
                     content_type={
                         "index.html": "text/html",
                         "app.js": "text/javascript",
+                        "core.js": "text/javascript",
+                        "tracker-state.js": "text/javascript",
+                        "api-client.js": "text/javascript",
                         "runtime-config.js": "text/javascript",
                         "style.css": "text/css",
                     }[name],
@@ -64,6 +75,8 @@ def main():
                 reply({})
             elif path == "/api/integrations/lark/status":
                 reply({"installed": False})
+            elif path == "/api/jobscout/tracker/applications/page":
+                reply(page_payload([]))
             elif path in (
                 "/api/threads/search",
                 "/api/jobscout/opportunities",

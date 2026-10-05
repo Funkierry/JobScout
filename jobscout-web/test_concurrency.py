@@ -4,13 +4,15 @@ import json
 from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
-from test_ui import ROOT, STAGES, fixtures
+from test_ui import ROOT, STAGES, fixtures, page_payload
 
 
 def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context(service_workers="block", viewport={"width": 1440, "height": 1000})
+        context = browser.new_context(
+            service_workers="block", viewport={"width": 1440, "height": 1000}
+        )
         page = context.new_page()
         unexpected, errors, cancellations = [], [], []
         page.on("pageerror", lambda error: errors.append(str(error)))
@@ -19,14 +21,24 @@ def main():
             request = r.request
             url = urlsplit(request.url)
             path = url.path
-            headers = {"Access-Control-Allow-Origin": "http://localhost:5500", "Access-Control-Allow-Credentials": "true", "Access-Control-Allow-Headers": "content-type,x-csrf-token", "Access-Control-Allow-Methods": "GET,POST,OPTIONS"}
+            headers = {
+                "Access-Control-Allow-Origin": "http://localhost:5500",
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Allow-Headers": "content-type,x-csrf-token",
+                "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+            }
             payloads = {
                 "/api/v1/auth/me": {"email": "demo@example.com"},
-                "/api/v1/auth/setup-status": {"needs_setup": False, "registration_enabled": True},
+                "/api/v1/auth/setup-status": {
+                    "needs_setup": False,
+                    "registration_enabled": True,
+                },
                 "/api/threads/search": [],
                 "/api/jobscout/opportunities": [],
                 "/api/jobscout/tracker/stages": STAGES,
-                "/api/jobscout/tracker/applications": fixtures(),
+                "/api/jobscout/tracker/applications/page": page_payload(
+                    fixtures(), url.query
+                ),
                 "/api/jobscout/tracker/notifications": [],
                 "/api/integrations/lark/status": {"installed": False},
                 "/api/threads": {"thread_id": "fixture-chat"},
@@ -37,14 +49,37 @@ def main():
                 r.abort()
             elif request.method == "OPTIONS":
                 r.fulfill(status=204, headers=headers)
-            elif path in ("/", "/app.js", "/runtime-config.js", "/style.css"):
+            elif path in (
+                "/",
+                "/app.js",
+                "/core.js",
+                "/tracker-state.js",
+                "/api-client.js",
+                "/runtime-config.js",
+                "/style.css",
+            ):
                 name = "index.html" if path == "/" else path[1:]
-                r.fulfill(path=str(ROOT / name), content_type={"index.html": "text/html", "app.js": "text/javascript", "runtime-config.js": "text/javascript", "style.css": "text/css"}[name])
+                r.fulfill(
+                    path=str(ROOT / name),
+                    content_type={
+                        "index.html": "text/html",
+                        "app.js": "text/javascript",
+                        "core.js": "text/javascript",
+                        "tracker-state.js": "text/javascript",
+                        "api-client.js": "text/javascript",
+                        "runtime-config.js": "text/javascript",
+                        "style.css": "text/css",
+                    }[name],
+                )
             elif path.endswith("/cancel"):
                 cancellations.append(path)
                 r.fulfill(status=202, headers=headers)
             elif path in payloads:
-                r.fulfill(body=json.dumps(payloads[path]), content_type="application/json", headers=headers)
+                r.fulfill(
+                    body=json.dumps(payloads[path]),
+                    content_type="application/json",
+                    headers=headers,
+                )
             elif path == "/favicon.ico":
                 r.fulfill(status=204)
             else:
@@ -60,7 +95,7 @@ def main():
           window.fixture={trackerAborts:0, chatAborts:0, starts:0};
           window.fetch=(url,opts={})=> {
             if(String(url).endsWith('/refresh')) return new Promise((resolve,reject)=> {
-              fixture.finishTracker=()=>resolve(new Response(JSON.stringify({application:trackerRows[0],skipped:false}), {headers:{'Content-Type':'application/json'}}));
+              fixture.finishTracker=()=>resolve(new Response(JSON.stringify({application:{...trackerRows[0],check_result:'成功'},skipped:false}), {headers:{'Content-Type':'application/json'}}));
               opts.signal?.addEventListener('abort',()=>{fixture.trackerAborts++;reject(opts.signal.reason);},{once:true});
             });
             if(String(url).endsWith('/runs/stream')) {
@@ -207,7 +242,9 @@ def main():
         assert page.evaluate("trackerRows.length") == 0
         assert not unexpected and not errors, (unexpected, errors)
         browser.close()
-        print("PASS: concurrent chat/refresh, view switching, background results, cancellation and logout; all requests synthetic")
+        print(
+            "PASS: concurrent chat/refresh, view switching, background results, cancellation and logout; all requests synthetic"
+        )
 
 
 if __name__ == "__main__":

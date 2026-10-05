@@ -37,6 +37,10 @@ style uses solid blue accents, neutral surfaces, clear type and borders. Summary
 cards count all saved applications, confirmed active processes, review-needed
 records and confirmed offers; they are calculated from current records, never
 placeholder statistics. Unknown, conflicting and failed checks remain in review.
+The table loads 50 applications per page, newest IDs first. Previous/next navigation
+and stage filters use the server's cursor endpoint; summary cards and filter counts
+cover every saved application. Failed page requests retain the last successful
+page. CSV export and batch refresh continue to cover all records.
 The left sidebar contains task-mode navigation, new-chat and
 searchable DeerFlow thread history, plus the current account. The main area has
 an empty-state prompt gallery, evidence/status header, inline reports, resume
@@ -81,6 +85,11 @@ request can fail when disconnected from the server; the UI reports that rather
 than claiming the server stopped. Restart Gateway after updating the backend.
 
 ## Run locally
+
+`core.js` owns pure display/report helpers, `api-client.js` owns credentials,
+CSRF and request cancellation, and `tracker-state.js` owns pagination navigation.
+Load them before `app.js`, which connects those modules to the DOM and task state.
+These scripts also expose CommonJS exports for offline Node checks; no bundler is needed.
 
 For a fresh machine or server, use the [Docker deployment guide](../docs/jobscout/deployment.md).
 It serves this client at `/`, proxies the Gateway on the same origin, and retains

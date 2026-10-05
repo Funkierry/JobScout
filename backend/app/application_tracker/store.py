@@ -627,6 +627,11 @@ class ApplicationTrackerStore:
                     updated += 1
         return ImportSummary(inserted=inserted, updated=updated, total=len(applications))
 
+    def list_applications_page(self, user_id: str, *, limit=50, before_id=None, stage=None) -> dict:
+        from .pagination import list_page
+
+        return list_page(self, user_id, limit=limit, before_id=before_id, stage=stage)
+
     def list_applications(self, user_id: str) -> list[StoredApplication]:
         user_id = self._validated_user_id(user_id)
         with self._connect() as connection:

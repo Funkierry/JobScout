@@ -1,0 +1,18 @@
+# Requires Docker Compose >= 2.24.4; merged over docker-compose.jobscout.yaml.
+# The application and public skills live inside the images. Only operator
+# configuration and persistent data are mounted from outside them.
+services:
+  gateway:
+    build: !reset null
+    image: ${JOBSCOUT_IMAGE_PREFIX:?Set JOBSCOUT_IMAGE_PREFIX}-gateway:${JOBSCOUT_IMAGE_TAG:?Set JOBSCOUT_IMAGE_TAG}
+    volumes: !override
+      - ${JOBSCOUT_DEPLOY_DIR:-../.jobscout}/config.yaml:/config/config.yaml:ro
+      - ${JOBSCOUT_DEPLOY_DIR:-../.jobscout}/extensions_config.json:/config/extensions_config.json
+      - jobscout-data:/data
+  frontend:
+    build: !reset null
+    image: ${JOBSCOUT_IMAGE_PREFIX:?Set JOBSCOUT_IMAGE_PREFIX}-capabilities:${JOBSCOUT_IMAGE_TAG:?Set JOBSCOUT_IMAGE_TAG}
+  nginx:
+    image: ${JOBSCOUT_IMAGE_PREFIX:?Set JOBSCOUT_IMAGE_PREFIX}-web:${JOBSCOUT_IMAGE_TAG:?Set JOBSCOUT_IMAGE_TAG}
+    volumes: !override
+      - ${JOBSCOUT_DEPLOY_DIR:-../.jobscout}/runtime-config.js:/usr/share/nginx/jobscout/runtime-config.js:ro

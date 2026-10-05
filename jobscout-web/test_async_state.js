@@ -5,7 +5,7 @@ const path = require("path");
 const vm = require("vm");
 
 function fixture() {
-  const context = vm.createContext({ console, TextDecoder, module: { exports: {} } });
+  const context = vm.createContext({ console, TextDecoder, URL, URLSearchParams, require, module: { exports: {} } });
   vm.runInContext(fs.readFileSync(path.join(__dirname, "app.js"), "utf8"), context);
   const nodes = new Map();
   context.document = { getElementById(id) {
@@ -25,14 +25,15 @@ async function main() {
     ["loadOpportunities", "opportunities", [{ id: 1, prep_thread_id: "deleted" }], [{ id: 1, prep_thread_id: null }]],
   ]) {
     const { context, pending } = fixture();
+    const payload = rows => loader === "loadTrackerApplications" ? { items: rows, total: rows.length, summary: { total: rows.length }, stages: [], has_more: false } : rows;
     const first = vm.runInContext(`${loader}()`, context);
     const last = vm.runInContext(`${loader}()`, context);
-    pending[1](newer); await last;
-    pending[0](older); await first;
+    pending[1](payload(newer)); await last;
+    pending[0](payload(older)); await first;
     assert.strictEqual(vm.runInContext(`JSON.stringify(${variable})`, context), JSON.stringify(newer), "late response must not replace newer state");
     const inFlight = vm.runInContext(`${loader}()`, context);
     vm.runInContext(`invalidateSessionViews(); ${variable}=[];`, context);
-    pending[2](older); await inFlight;
+    pending[2](payload(older)); await inFlight;
     assert.strictEqual(vm.runInContext(`${variable}.length`, context), 0, "old session must not repopulate cleared state");
   }
   const { context, pending } = fixture();

@@ -73,6 +73,8 @@ python scripts/jobscout.py up
 
 打开 **http://localhost:2026**，创建管理员账号即可进入工作台。首次构建会下载依赖并编译上游能力中心；命令会等待健康检查通过后才报告启动成功。
 
+服务器也可以直接拉取 **按完整提交号标记的预构建镜像**，省去现场安装依赖和编译。在 `.jobscout/.env` 设置 `JOBSCOUT_DEPLOY_MODE=images` 与已发布的 `JOBSCOUT_IMAGE_TAG=sha-完整提交号`，再运行同一个 `up` 命令。镜像模式要求 Compose 2.24.4+，当前发布 `linux/amd64`；具体版本获取、访问权限和升级步骤见[镜像部署](docs/jobscout/deployment.md#使用预构建镜像)。
+
 这套入口会为你准备：
 
 - **独立配置目录：** `.jobscout/`，初始化不覆盖原来根目录的本地开发配置。
@@ -192,6 +194,8 @@ backend/.venv/Scripts/python.exe -B jobscout-web/test_concurrency.py
 Linux/macOS 将 Python 路径替换为 `backend/.venv/bin/python`，或在 backend 目录使用 `.venv/bin/python`。
 
 [部署 CI](.github/workflows/jobscout-deploy.yml) 在临时 Linux 实例验证镜像构建、首次初始化、同域认证、持久化与 Chromium 启动；它不代表真实招聘网站和模型服务已经验收。前端测试还覆盖注册策略、连接重试、桌面/移动端、任务并发、取消及历史记录操作。
+
+投递工作台按 **每页 50 条**加载，支持跨页环节筛选；新增记录不会把后续页面的游标挤乱。顶部总数与状态统计仍覆盖全部投递，CSV 导出与批量检查也保持完整范围。请求处理、分页状态、报告渲染与证据展示已拆为独立模块，页面仍无需构建即可运行。实现与性能边界见[可靠性记录](docs/jobscout/reliability.md)。
 
 ## 继续了解
 

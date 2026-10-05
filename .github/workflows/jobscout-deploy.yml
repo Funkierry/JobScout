@@ -12,13 +12,15 @@ on:
       - 'jobscout-web/**'
       - 'deploy/jobscout/**'
       - 'docker/**'
+      - 'skills/public/**'
+      - '.dockerignore'
       - '.github/workflows/jobscout-deploy.yml'
   push:
     branches: [main]
     paths:
       - '.github/workflows/jobscout-deploy.yml'
       - 'deploy/jobscout/**'
-      - 'docker/docker-compose.jobscout.yaml'
+      - 'docker/docker-compose.jobscout*.yaml'
       - 'docker/nginx/jobscout.conf'
       - 'backend/Dockerfile'
       - 'backend/app/**'
@@ -28,6 +30,7 @@ on:
       - 'scripts/jobscout*.py'
       - 'jobscout-web/**'
       - '.dockerignore'
+      - 'skills/public/**'
 permissions:
   contents: read
 concurrency:
@@ -36,7 +39,10 @@ concurrency:
 jobs:
   container-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -94,9 +100,73 @@ jobs:
           assert status['needs_setup'] is False
           print('Administrator restored into a fresh data volume')
           PY
+      - name: Package the tested application as commit-tagged images
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          python scripts/jobscout.py down
+          prefix="ghcr.io/${REPOSITORY,,}"
+          tag="sha-${COMMIT}"
+          echo "JOBSCOUT_RELEASE_PREFIX=${prefix}" >> "$GITHUB_ENV"
+          echo "JOBSCOUT_RELEASE_TAG=${tag}" >> "$GITHUB_ENV"
+          docker build -f deploy/jobscout/gateway.Dockerfile --label "org.opencontainers.image.source=https://github.com/${REPOSITORY}" --label "org.opencontainers.image.revision=${COMMIT}" -t "${prefix}-gateway:${tag}" .
+          docker build -f deploy/jobscout/web.Dockerfile --label "org.opencontainers.image.source=https://github.com/${REPOSITORY}" --label "org.opencontainers.image.revision=${COMMIT}" -t "${prefix}-web:${tag}" .
+          docker tag jobscout-frontend:latest "${prefix}-capabilities:${tag}"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path('.jobscout/.env')
+          p.write_text(p.read_text() + '\nJOBSCOUT_DEPLOY_MODE=images\nJOBSCOUT_IMAGE_PREFIX=ghcr.io/' + os.environ['REPOSITORY'].lower() + '\nJOBSCOUT_IMAGE_TAG=sha-' + os.environ['COMMIT'] + '\nJOBSCOUT_DATA_VOLUME=jobscout-image-data\n')
+          PY
+      - name: Start packaged images and verify no source mounts
+        run: |
+          python scripts/jobscout.py up --no-pull
+          python scripts/jobscout_smoke.py
+          python - <<'PY'
+          import importlib.util, json, subprocess, urllib.request
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('deploy', 'scripts/jobscout.py')
+          deploy = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(deploy)
+          directory = Path('.jobscout').resolve()
+          config = json.loads(deploy.compose(directory, ['config', '--format', 'json'], check=True, capture_output=True, text=True).stdout)
+          services = config['services']
+          for service in ('gateway', 'frontend', 'nginx'):
+              assert 'build' not in services[service]
+          assert {v['target'] for v in services['gateway']['volumes']} == {'/config/config.yaml', '/config/extensions_config.json', '/data'}
+          assert {v['target'] for v in services['nginx']['volumes']} == {'/usr/share/nginx/jobscout/runtime-config.js'}
+          deploy.compose(directory, ['exec', '-T', 'gateway', '/app/backend/.venv/bin/python', '-c', "from pathlib import Path; assert list(Path('/app/skills/public').glob('*/SKILL.md'))"], check=True)
+          for name in ('core', 'api-client', 'tracker-state'):
+              response = urllib.request.urlopen('http://127.0.0.1:2026/' + name + '.js')
+              assert response.status == 200 and 'javascript' in response.headers['Content-Type']
+          print('Packaged assets and public skills ready; no application source bind mounts')
+          PY
+      - name: Sign in to GitHub Container Registry
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish tested commit images
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          for component in gateway capabilities web; do
+            docker push "${JOBSCOUT_RELEASE_PREFIX}-${component}:${JOBSCOUT_RELEASE_TAG}"
+          done
+          echo "Published image tag: \`${JOBSCOUT_RELEASE_TAG}\` (linux/amd64)" >> "$GITHUB_STEP_SUMMARY"
       - name: Service diagnostics
         if: failure()
-        run: docker compose --project-name jobscout --env-file .jobscout/.env -f docker/docker-compose.jobscout.yaml logs --tail 80
+        run: |
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('deploy', 'scripts/jobscout.py')
+          deploy = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(deploy)
+          deploy.compose(Path('.jobscout').resolve(), ['logs', '--tail', '80'])
+          PY
       - name: Stop disposable services
         if: always()
         run: python scripts/jobscout.py down

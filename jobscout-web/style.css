@@ -1792,3 +1792,6 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   .tracker-schedule-form label { font-size: 13px; }
   .tracker-schedule-form input:not([type="checkbox"]), .tracker-schedule-form select { min-height: 44px; }
 }
+/* Pagination stays outside the scrolling table, including on mobile. */
+.tracker-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 0; flex-shrink: 0; }
+.tracker-pagination span { font-size: 12px; color: var(--text-muted, #64748b); }

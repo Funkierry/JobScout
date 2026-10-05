@@ -1,0 +1,13 @@
+**
+!docker/
+!docker/nginx/
+!docker/nginx/jobscout.conf
+!jobscout-web/
+!jobscout-web/index.html
+!jobscout-web/style.css
+!jobscout-web/runtime-config.js
+!jobscout-web/app.js
+!jobscout-web/core.js
+!jobscout-web/api-client.js
+!jobscout-web/tracker-state.js
+!LICENSE
