@@ -31,6 +31,33 @@ python scripts/jobscout.py up
 
 打开 **http://localhost:2026**。新实例会直接显示“创建你的管理员账号”；创建完成后进入 JobScout。公开注册默认关闭，已有实例显示登录入口。
 
+### 使用预构建镜像
+
+资源有限的服务器可跳过本机构建。先按上面的步骤克隆仓库、执行 `init`、填写模型参数，再编辑 `.jobscout/.env`：
+
+```dotenv
+JOBSCOUT_DEPLOY_MODE=images
+JOBSCOUT_IMAGE_PREFIX=ghcr.io/funkierry/jobscout
+JOBSCOUT_IMAGE_TAG=sha-这里替换为已发布版本的完整40位提交号
+```
+
+在 GitHub 的 [JobScout deployment 工作流](https://github.com/Funkierry/JobScout/actions/workflows/jobscout-deploy.yml) 找到 **main 分支成功完成发布**的一次运行，从运行摘要复制 `sha-…` 标签。PR 检查仅构建和验证，不发布；main 推送或 main 上手动重跑会在容器验证通过后发布以下三个镜像，标签必须一致：
+
+- `ghcr.io/funkierry/jobscout-gateway`：后端、Chromium、私有浏览器桌面和内置公开技能。
+- `ghcr.io/funkierry/jobscout-capabilities`：飞书连接与上游能力中心。
+- `ghcr.io/funkierry/jobscout-web`：独立工作台页面及 Nginx 配置。
+
+当前 CI 构建 `linux/amd64`。ARM 主机可采用源码构建；此处尚未提供原生 ARM 镜像。镜像模式使用 Compose 的卷替换语法，需要 **Compose 2.24.4 或更新版本**，`doctor` 会检查。[Compose 合并规则](https://docs.docker.com/reference/compose-file/merge/)。
+
+```bash
+python scripts/jobscout.py doctor
+python scripts/jobscout.py up
+```
+
+`up` 会先拉取所有镜像，再以 `--no-build` 启动并等待健康检查。应用源码、公开技能和网页都已打包；服务器只挂载私有配置、公开运行时地址和数据卷。升级时先备份，再将代码与 `JOBSCOUT_IMAGE_TAG` 切到同一个已发布提交后运行 `up`。恢复旧版本也应配合兼容的数据备份，单纯切镜像不能撤销数据库迁移。
+
+GHCR 首次发布的包可能是私有包；仓库公开不代表镜像自动公开。遇到 `denied` 时，仓库所有者可在包设置中开放可见性，或部署者使用具备该包读取权限的账号通过 `docker login ghcr.io` 登录。访问令牌放 Docker 凭据存储，不放网页配置。[GHCR 访问说明](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)。已离线导入镜像时可用 `up --no-pull`；平常使用默认拉取即可。
+
 ## 2. 为什么保留四个服务
 
 | 服务 | 职责 | 宿主机访问 |
@@ -118,7 +145,7 @@ python scripts/jobscout.py up
 
 命令要求 Gateway 已停止，并拒绝向非空卷写入。恢复前使用原版本镜像/代码，确认账号、投递和文件后再升级。归档路径会先校验，再在临时目录解包；原数据卷一直保留，切回原卷名即可重新启动旧数据。第一次运行恢复命令需要本地已有构建镜像。Redis 是事件传输缓存，不在数据备份中；持久会话和运行记录由 `/data` 数据库恢复。
 
-更新代码后再次运行 `python scripts/jobscout.py up` 即可重建并检查健康状态。更新前先备份；有数据库迁移的版本应结合对应变更说明安排回退。
+源码模式更新代码后再次运行 `python scripts/jobscout.py up` 即可重建并检查健康状态；镜像模式按上面的步骤更新发布标签。更新前先备份；有数据库迁移的版本应结合对应变更说明安排回退。
 
 ## 6. 可选功能与费用
 
@@ -142,6 +169,8 @@ python scripts/jobscout.py up
 ## 8. 如何验证部署改动
 
 [JobScout deployment CI](../../.github/workflows/jobscout-deploy.yml) 在临时 Linux 环境构建四个服务，检查入口、管理员初始化、Cookie/CSRF、关闭注册、目标岗位保存、能力中心、Chromium 启动，以及容器停止再启动后的账号持久化。测试使用合成账号，不调用模型或真实招聘网站。
+
+随后 CI 会备份并恢复到新卷，再将应用打包为三个镜像，在另一个全新数据卷启动镜像模式，复测初始化与接口，同时检查页面模块、内置技能以及不存在应用源码挂载。只有这些检查通过，main 上的运行才会推送提交标签；发布失败的运行不能作为可部署版本。
 
 `scripts/jobscout_smoke.py` 会创建合成管理员，仅供全新、可丢弃的本地测试实例；不要在自己的正式实例运行。功能回归和离线评测见 [README](../../README.md#开发与验证)。
 

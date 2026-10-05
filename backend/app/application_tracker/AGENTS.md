@@ -1,5 +1,10 @@
 # Application tracker
 
+`pagination.py` returns owner-scoped cursor pages: only page rows load full evidence;
+global summaries scan compact state. Reuse MailStore resolution for mail conflicts
+and manual stages. Keep the legacy full list for exports/batches; no count claims
+based on the current page. Cursor mutation and page/full-list parity tests are offline.
+
 Refresh writes compare revision, identity and checked_at inside BEGIN IMMEDIATE; preserve notification/history atomicity. Manual, batch and scheduled checks share the per-loop refresh lock. Connections close on context exit. Gateway caches store initialization off-loop. CSV export/import share versioned text encoding and bilingual column mapping; never import status history from a CSV.
 
 Stage 7: `scheduling.py` owns owner-scoped settings, atomic per-day reservations and transactional notices. `scheduled_graph.py` accepts only the gated, trusted native scheduler context; never assemble the lead agent here. `allow_model_fallback=False` must avoid model initialization on every tracker branch. Cancellation/failure consumes reserved quota. Portal notices use the check transaction; mail notices share source resolution and the mail transaction. See `docs/jobscout/scheduled-refresh.md`.

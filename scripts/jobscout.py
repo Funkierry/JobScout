@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
+import re
 import secrets
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,6 +80,20 @@ def configuration_errors(directory: Path) -> list[str]:
     if errors:
         return errors
     values = read_env(directory / ".env")
+    mode = values.get("JOBSCOUT_DEPLOY_MODE", "source")
+    if mode not in {"source", "images"}:
+        errors.append("JOBSCOUT_DEPLOY_MODE must be source or images")
+    if mode == "images":
+        if not re.fullmatch(r"sha-[0-9a-f]{40}", values.get("JOBSCOUT_IMAGE_TAG", "")):
+            errors.append(
+                "JOBSCOUT_IMAGE_TAG must be sha- followed by the full 40-character commit hash"
+            )
+        if not re.fullmatch(
+            r"[a-z0-9][a-z0-9./_-]*", values.get("JOBSCOUT_IMAGE_PREFIX", "")
+        ):
+            errors.append(
+                "Set JOBSCOUT_IMAGE_PREFIX to a lowercase registry/repository prefix"
+            )
     for key in ("JOBSCOUT_MODEL", "JOBSCOUT_MODEL_API_KEY", "JOBSCOUT_MODEL_BASE_URL"):
         if values.get(key, "") in {
             "",
@@ -112,6 +127,10 @@ def configuration_errors(directory: Path) -> list[str]:
 
 
 def compose_command(directory: Path, arguments: list[str]) -> list[str]:
+    values = read_env(directory / ".env") if (directory / ".env").is_file() else {}
+    overrides = []
+    if values.get("JOBSCOUT_DEPLOY_MODE") == "images":
+        overrides = ["-f", str(ROOT / "docker/docker-compose.jobscout-images.yaml")]
     return [
         "docker",
         "compose",
@@ -123,6 +142,7 @@ def compose_command(directory: Path, arguments: list[str]) -> list[str]:
         str(directory / ".env"),
         "-f",
         str(ROOT / "docker/docker-compose.jobscout.yaml"),
+        *overrides,
         *arguments,
     ]
 
@@ -152,7 +172,21 @@ def doctor(directory: Path) -> bool:
     if errors:
         return False
     try:
-        subprocess.run(["docker", "compose", "version"], check=True, timeout=15)
+        version = subprocess.run(
+            ["docker", "compose", "version", "--short"],
+            check=True,
+            timeout=15,
+            capture_output=True,
+            text=True,
+        )
+        if read_env(directory / ".env").get("JOBSCOUT_DEPLOY_MODE") == "images":
+            match = re.search(r"(\d+)\.(\d+)\.(\d+)", version.stdout)
+            if not match or tuple(map(int, match.groups())) < (2, 24, 4):
+                print(
+                    "ERROR: Image deployment requires Docker Compose 2.24.4 or newer.",
+                    file=sys.stderr,
+                )
+                return False
         engine = subprocess.run(
             ["docker", "info", "--format", "{{.OSType}}"],
             check=True,
@@ -269,6 +303,11 @@ def main() -> int:
     )
     parser.add_argument("--directory", type=Path, default=DEFAULT_DIRECTORY)
     parser.add_argument(
+        "--no-pull",
+        action="store_true",
+        help="Use already-loaded images in image mode (offline/CI)",
+    )
+    parser.add_argument(
         "--archive",
         type=Path,
         help="Backup .tar.gz to restore into an empty data volume",
@@ -284,8 +323,22 @@ def main() -> int:
         if args.command == "up":
             if not doctor(directory):
                 return 1
+            values = (
+                read_env(directory / ".env") if (directory / ".env").is_file() else {}
+            )
+            image_mode = values.get("JOBSCOUT_DEPLOY_MODE") == "images"
+            if image_mode and not args.no_pull:
+                compose(directory, ["pull"], check=True)
             result = compose(
-                directory, ["up", "--build", "--wait", "--wait-timeout", "240"]
+                directory,
+                [
+                    "up",
+                    "--no-build" if image_mode else "--build",
+                    *(["--pull", "never"] if image_mode else []),
+                    "--wait",
+                    "--wait-timeout",
+                    "240",
+                ],
             )
             if result.returncode:
                 compose(directory, ["ps"])

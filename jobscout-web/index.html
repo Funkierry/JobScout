@@ -367,6 +367,11 @@
           <tbody id="trackerTableBody"></tbody>
         </table>
       </div>
+      <nav id="trackerPagination" class="tracker-pagination hidden" aria-label="投递列表分页">
+        <button id="trackerPreviousPage" class="secondary-btn" type="button">上一页</button>
+        <span id="trackerPageLabel" role="status" aria-live="polite"></span>
+        <button id="trackerNextPage" class="secondary-btn" type="button">下一页</button>
+      </nav>
     </section>
 
     <section class="conversation" id="chatCard" aria-label="JobScout 对话">
@@ -408,6 +413,9 @@
 </section>
 
 <script src="runtime-config.js"></script>
+<script src="core.js"></script>
+<script src="api-client.js"></script>
+<script src="tracker-state.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -9,6 +9,11 @@ the named data volume; routine down must not remove volumes. `jobscout_smoke.py`
 creates synthetic accounts and is only for disposable loopback CI instances.
 Tests: `backend/tests/test_jobscout_deployment.py`; images: `jobscout-deploy.yml`.
 
+Image mode merges the Compose images override (Compose >=2.24.4), requires a full
+sha-commit tag, pulls before starting and uses --no-build. --no-pull is for preloaded
+images. Main CI publishes only after source/restore/packaged-container checks;
+PRs never publish. Keep packaged application code free of host source mounts.
+
 `jobscout_archive.py` handles volume backups/restores inside container Python 3.12.
 Restore refuses a running Gateway or nonempty volume; use a fresh named volume
 and retain the original one. Validate all archive paths before staging extraction.

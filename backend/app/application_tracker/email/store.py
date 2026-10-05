@@ -1,6 +1,7 @@
 """Private mail ledger and a derived view; portal history is never overwritten."""
 
 import json
+from collections import defaultdict
 from datetime import UTC, datetime
 from hashlib import sha256
 
@@ -41,13 +42,13 @@ class MailStore:
                 if row is None or row["company"] != event.company or row["role"] != event.role or not all(is_evidence_grounded(source, text) for text in (event.company, event.role)):
                     raise ValueError("Mail application ownership or evidence mismatch")
                 app = self.tracker._application_from_row(row)
-                previous = self._decorate([app], self._events(connection, user_id))[0]
+                previous = self._decorate([app], self._events(connection, user_id, application_ids=[app.id]))[0]
             result = connection.execute(
                 "INSERT OR IGNORE INTO jobscout_mail_events(user_id,application_id,fingerprint,event_json,received_at) VALUES(?,?,?,?,?)",
                 (user_id, event.application_id, fingerprint, event.model_dump_json(), event.received_at.astimezone(UTC).isoformat()),
             )
             if result.rowcount and previous is not None:
-                current = self._decorate([app], self._events(connection, user_id))[0]
+                current = self._decorate([app], self._events(connection, user_id, application_ids=[app.id]))[0]
                 before = (previous.source_summary or {}).get("status", previous.status.value)
                 after = current.source_summary or {}
                 if before != "未知" and after.get("source") == "email" and not after.get("conflict") and after["status"] != before:
@@ -69,26 +70,36 @@ class MailStore:
     def decorate(self, user_id: str, applications: list):
         # One bounded query per user listing, not per application.
         with self.tracker._connect() as connection:
-            events = self._events(connection, self.tracker._validated_user_id(user_id))
+            events = self._events(connection, self.tracker._validated_user_id(user_id), application_ids=[app.id for app in applications])
         return self._decorate(applications, events)
 
     @staticmethod
-    def _events(connection, user_id):
+    def _events(connection, user_id, *, application_ids=None, compact=False):
+        if application_ids == []:
+            return []
+        # Bind at most one page's IDs; full export keeps the original owner query.
+        bounded_ids = application_ids if application_ids is not None and len(application_ids) <= 100 else None
+        predicate = " AND application_id IN (" + ",".join("?" for _ in bounded_ids) + ")" if bounded_ids else ""
+        projection = "json_object('application_id',application_id,'status',json_extract(event_json,'$.status'),'review_reason',NULL,'received_at',json_extract(event_json,'$.received_at'))" if compact else "event_json"
         rows = connection.execute(
-            """SELECT id,event_json FROM (
-                SELECT id,event_json,DENSE_RANK() OVER (PARTITION BY application_id ORDER BY received_at DESC) AS n
-                FROM jobscout_mail_events WHERE user_id=? AND application_id IS NOT NULL
+            f"""SELECT id,event_json FROM (
+                SELECT id,{projection} AS event_json,DENSE_RANK() OVER (PARTITION BY application_id ORDER BY received_at DESC) AS n
+                FROM jobscout_mail_events WHERE user_id=? AND application_id IS NOT NULL {predicate}
                 AND json_extract(event_json,'$.review_reason') IS NULL AND json_extract(event_json,'$.status') IS NOT NULL
             ) WHERE n <= 2 ORDER BY id DESC""",
-            (user_id,),
+            (user_id, *(bounded_ids or [])),
         ).fetchall()
         return sorted([{"id": row["id"], **json.loads(row["event_json"])} for row in rows], key=lambda event: (datetime.fromisoformat(event["received_at"]), event["id"]), reverse=True)
 
     @staticmethod
     def _decorate(applications, events):
+        by_application = defaultdict(list)
+        for event in events:
+            if event["status"] and not event["review_reason"]:
+                by_application[event["application_id"]].append(event)
         results = []
         for app in applications:
-            candidates = [event for event in events if event["application_id"] == app.id and event["status"] and not event["review_reason"]]
+            candidates = by_application[app.id]
             if not candidates:
                 results.append(app)
                 continue
@@ -108,10 +119,10 @@ class MailStore:
                 "source": "email" if selected else "portal",
                 "conflict": conflict,
                 "email_status": status,
-                "evidence": latest["quote"],
+                "evidence": latest.get("quote", ""),
                 "received_at": latest["received_at"],
-                "event_at": latest["event_at"],
-                "time_evidence": latest["time_quote"],
+                "event_at": latest.get("event_at"),
+                "time_evidence": latest.get("time_quote", ""),
                 "event_id": latest["id"],
             }
             results.append(app.model_copy(update={"source_summary": summary}))

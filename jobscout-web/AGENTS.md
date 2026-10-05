@@ -18,6 +18,11 @@ All browser tests intercept requests and use synthetic data. Run `test_pure.js`,
 with the backend Playwright environment. Keep runtime-config.js in their asset
 fixtures. Live research and deployment smoke are separate, explicit operations.
 
+Load core.js, api-client.js and tracker-state.js before app.js; serve them in browser
+fixtures and Nginx. Tracker uses cursor pages (50 rows), server global counts and
+stage filters; CSV/batch remain complete. Failed navigation restores its committed
+cursor/filter. Session/request ownership guards must still reject late responses.
+
 CSV import uses the visible button/file input and existing CSRF-aware API helper;
 keep its browser test and busy-state behavior. JobScout regression CI runs all five
 standalone test entrypoints, with every browser request intercepted.

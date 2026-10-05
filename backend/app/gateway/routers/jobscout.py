@@ -9,7 +9,7 @@ from functools import lru_cache
 from threading import Lock
 
 from anyio import CancelScope
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -513,6 +513,13 @@ async def list_tracker_applications(request: Request) -> list[StoredApplication]
     del request
     user_id = get_effective_user_id()
     return await asyncio.to_thread((await _get_tracker_store()).list_applications, user_id)
+
+
+@router.get("/tracker/applications/page")
+@require_permission("runs", "read")
+async def list_tracker_applications_page(request: Request, limit: int = Query(50, ge=1, le=100), before_id: int | None = Query(None, ge=1), stage: str | None = Query(None, max_length=60)) -> dict:
+    del request
+    return await asyncio.to_thread((await _get_tracker_store()).list_applications_page, get_effective_user_id(), limit=limit, before_id=before_id, stage=stage)
 
 
 @router.post("/tracker/applications", response_model=StoredApplication)

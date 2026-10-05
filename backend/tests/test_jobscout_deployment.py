@@ -77,6 +77,50 @@ def test_compose_uses_explicit_env_and_project_directory(tmp_path):
     assert command[-2:] == ["config", "--quiet"]
 
 
+@pytest.mark.parametrize("offline", [False, True])
+def test_image_mode_uses_override_and_never_builds_on_up(tmp_path, monkeypatch, offline):
+    cli = load_cli()
+    cli.initialize(tmp_path)
+    env = tmp_path / ".env"
+    env.write_text(env.read_text(encoding="utf-8") + "\nJOBSCOUT_DEPLOY_MODE=images\nJOBSCOUT_IMAGE_TAG=sha-" + "a" * 40 + "\n", encoding="utf-8")
+    command = cli.compose_command(tmp_path, ["up"])
+    assert any(item.endswith("docker-compose.jobscout-images.yaml") for item in command)
+    monkeypatch.setattr(cli.sys, "argv", ["jobscout.py", "up", "--directory", str(tmp_path), *(["--no-pull"] if offline else [])])
+    monkeypatch.setattr(cli, "doctor", lambda _: True)
+    calls = []
+    monkeypatch.setattr(cli, "compose", lambda directory, args, **kwargs: calls.append(args) or SimpleNamespace(returncode=0))
+    assert cli.main() == 0
+    assert calls[0][0] == ("up" if offline else "pull")
+    assert "--no-build" in calls[-1] and "--build" not in calls[-1]
+    assert calls[-1][calls[-1].index("--pull") + 1] == "never"
+
+
+def test_image_mode_requires_a_commit_tag(tmp_path):
+    cli = load_cli()
+    cli.initialize(tmp_path)
+    env = tmp_path / ".env"
+    env.write_text(env.read_text(encoding="utf-8") + "\nJOBSCOUT_DEPLOY_MODE=images\nJOBSCOUT_IMAGE_TAG=latest\n", encoding="utf-8")
+    assert any("JOBSCOUT_IMAGE_TAG" in error for error in cli.configuration_errors(tmp_path))
+
+
+def test_image_pull_failure_does_not_start_partial_release(tmp_path, monkeypatch):
+    cli = load_cli()
+    cli.initialize(tmp_path)
+    env = tmp_path / ".env"
+    env.write_text(env.read_text(encoding="utf-8") + "\nJOBSCOUT_DEPLOY_MODE=images\n", encoding="utf-8")
+    monkeypatch.setattr(cli.sys, "argv", ["jobscout.py", "up", "--directory", str(tmp_path)])
+    monkeypatch.setattr(cli, "doctor", lambda _: True)
+    calls = []
+
+    def run(directory, arguments, **kwargs):
+        calls.append(arguments)
+        raise subprocess.CalledProcessError(1, arguments)
+
+    monkeypatch.setattr(cli, "compose", run)
+    assert cli.main() == 1
+    assert calls == [["pull"]]
+
+
 def test_deployment_config_passes_real_schema(tmp_path, monkeypatch):
     cli = load_cli()
     cli.initialize(tmp_path)

@@ -7,7 +7,7 @@ Screenshots contain synthetic data only and stay under ignored local_eval/.
 import argparse
 import json
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -51,6 +51,46 @@ def fixtures():
             1,
         )
     ]
+
+
+def page_payload(rows, query=""):
+    """Synthetic HTTP fixture; production status parity is tested in backend."""
+    params = parse_qs(query)
+    limit = int(params.get("limit", [50])[0])
+    stage = params.get("stage", [None])[0]
+    before = int(params.get("before_id", [10**12])[0])
+    counts = {}
+    summary = {"total": len(rows), "active": 0, "review": 0, "offers": 0}
+    for row in rows:
+        label = row.get("stage") or row["status"]
+        counts[label] = counts.get(label, 0) + 1
+        if (
+            row["status"] == "未知"
+            or row.get("check_result") != "成功"
+            or row.get("confidence", 1) < 0.7
+        ):
+            summary["review"] += 1
+        elif row["status"] == "Offer":
+            summary["offers"] += 1
+        elif row["status"] not in {"未通过", "流程终止"}:
+            summary["active"] += 1
+    filtered = [
+        row
+        for row in sorted(rows, key=lambda row: row["id"], reverse=True)
+        if stage is None or (row.get("stage") or row["status"]) == stage
+    ]
+    eligible = [row for row in filtered if row["id"] < before]
+    items = eligible[:limit]
+    more = len(eligible) > limit
+    return dict(
+        items=items,
+        total=len(rows),
+        filtered_total=len(filtered),
+        summary=summary,
+        stages=[dict(label=label, count=count) for label, count in counts.items()],
+        has_more=more,
+        next_before_id=items[-1]["id"] if more else None,
+    )
 
 
 def main():
@@ -114,6 +154,9 @@ def main():
                 "/",
                 "/index.html",
                 "/app.js",
+                "/core.js",
+                "/tracker-state.js",
+                "/api-client.js",
                 "/runtime-config.js",
                 "/style.css",
             ]:
@@ -123,6 +166,9 @@ def main():
                     content_type={
                         "index.html": "text/html",
                         "app.js": "text/javascript",
+                        "core.js": "text/javascript",
+                        "tracker-state.js": "text/javascript",
+                        "api-client.js": "text/javascript",
                         "runtime-config.js": "text/javascript",
                         "style.css": "text/css",
                     }[name],
@@ -146,11 +192,11 @@ def main():
                 fulfill({"installed": False})
             elif path == "/api/jobscout/tracker/stages":
                 fulfill(STAGES)
-            elif path == "/api/jobscout/tracker/applications":
+            elif path == "/api/jobscout/tracker/applications/page":
                 fulfill(
                     {"detail": "离线测试：暂时无法读取记录"}
                     if state["failure"]
-                    else rows,
+                    else page_payload(rows, url.query),
                     503 if state["failure"] else 200,
                 )
             elif path == "/api/jobscout/tracker/import":
@@ -223,7 +269,7 @@ def main():
             page.locator(".tracker-filter-tag").filter(has_text="笔试").click()
             expect(page.locator(".tracker-row")).to_have_count(1)
             page.locator(".tracker-filter-tag").filter(has_text="全部").click()
-            page.locator(".tracker-status-detail").first.click()
+            page.locator(".tracker-status-detail").last.click()
             expect(page.locator("#trackerResultDialog")).to_be_visible()
             expect(page.locator("#trackerResultEvidence")).to_contain_text(
                 "后端开发工程师"
