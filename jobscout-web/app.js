@@ -869,12 +869,10 @@ function setTrackerCompact(compact) {
   try { localStorage.setItem("jobscoutTrackerDensity", trackerCompact ? "compact" : "comfortable"); } catch (_) { /* optional preference */ }
 }
 
-function showTrackerBatchResult(rows) {
-  const dialog = $("trackerResultDialog");
-  if (!dialog) return;
-  const latest = [...rows].reverse().find((row) => row.checked_at) || rows[0];
-  if (!latest) return;
-  notifyTrackerResult(latest, `刷新完成，当前共 ${trackerPager.data?.total ?? rows.length} 条投递记录；最新结果已更新到表格。`);
+function showTrackerBatchResult(latest) {
+  notifyTrackerResult(latest, latest
+    ? `刷新完成，当前共 ${trackerPager.data?.total ?? 0} 条投递记录；可查看本次最近完成的检查结果。`
+    : "批量检查已结束，本次没有返回新的检查结果。");
 }
 
 function setTrackerBusy(busy) {
@@ -1325,6 +1323,7 @@ async function refreshAllTrackerRows() {
     const decoder = new TextDecoder();
     let buffer = "";
     let completed = false;
+    let latestResult = null;
     while (true) {
       const { value, done } = await reader.read();
       if (!jobIsCurrent(job) || job.controller.signal.aborted) return;
@@ -1334,6 +1333,7 @@ async function refreshAllTrackerRows() {
       buffer = parsed.remainder;
       for (const event of parsed.events) {
         if (event.type === "batch_completed") completed = true;
+        if (event.type === "row_completed" && event.application) latestResult = event.application;
         applyTrackerProgressEvent(event);
       }
       if (done) break;
@@ -1342,7 +1342,7 @@ async function refreshAllTrackerRows() {
     await loadTrackerApplications();
     if (!jobIsCurrent(job) || job.controller.signal.aborted) return;
     loadOpportunities().catch((error) => console.error("loadOpportunities failed", error));
-    showTrackerBatchResult(trackerRows);
+    showTrackerBatchResult(latestResult);
   } catch (error) {
     if (!jobIsCurrent(job)) return;
     const message = job.message || error.message || String(error);

@@ -75,6 +75,9 @@ def main():
     assert target["company"] == "Synthetic Company"
     assert len(request("/api/jobscout/opportunities")) == 1
     assert request("/api/jobscout/tracker/applications") == []
+    page = request("/api/jobscout/tracker/applications/page?limit=50")
+    assert page["items"] == [] and page["total"] == 0
+    assert page["summary"]["total"] == 0 and page["has_more"] is False
     assert "jobscout" in json.dumps(request("/api/models"))
     assert "<html" in request("/workspace/capabilities").lower()
     request("/api/v1/auth/logout", {})

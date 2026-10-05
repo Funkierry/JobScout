@@ -22,6 +22,8 @@ Load core.js, api-client.js and tracker-state.js before app.js; serve them in br
 fixtures and Nginx. Tracker uses cursor pages (50 rows), server global counts and
 stage filters; CSV/batch remain complete. Failed navigation restores its committed
 cursor/filter. Session/request ownership guards must still reject late responses.
+Batch result notices use the latest row_completed payload, even off-page; no-result
+batches must not reuse a historical row. Keep this in test_concurrency.py.
 
 CSV import uses the visible button/file input and existing CSRF-aware API helper;
 keep its browser test and busy-state behavior. JobScout regression CI runs all five
