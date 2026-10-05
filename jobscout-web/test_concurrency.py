@@ -178,9 +178,22 @@ def main():
         page.wait_for_function("!composerBusy")
         expect(page.locator("#chatStatus")).to_contain_text("投递记录")
         assert page.evaluate("trackerBusy") is True
+        # A completed row outside the visible page still owns the result notice.
+        page.evaluate(
+            "fixture.batchEvent({type:'row_completed',completed:6,total:6,application:{...trackerRows[0],id:999,company:'跨页公司',role:'跨页岗位',check_result:'成功'}})"
+        )
         page.evaluate("fixture.finishBatch()")
         page.wait_for_function("!trackerBusy")
         expect(page.locator("dialog:modal")).to_have_count(0)
+        page.locator("#trackerTaskDetails").click()
+        expect(page.locator("#trackerResultCompany")).to_have_text("跨页公司")
+        page.keyboard.press("Escape")
+        # No row results must not reuse a prior check or the visible page.
+        page.evaluate("void refreshAllTrackerRows()")
+        page.evaluate("fixture.finishBatch()")
+        page.wait_for_function("!trackerBusy")
+        expect(page.locator("#trackerTaskDetails")).to_be_hidden()
+        expect(page.locator("#trackerTaskText")).to_contain_text("没有返回新的检查结果")
         page.locator("#sidebarPrepBtn").click()
         expect(page.locator("#chatMessages")).to_contain_text("合成并行批量请求")
         expect(page.locator("#chatMessages")).to_contain_text("合成回复已完成")
