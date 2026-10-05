@@ -3,6 +3,7 @@
 
 const assert = require("assert");
 const fs = require("fs");
+require("child_process").execFileSync(process.execPath, [require("path").join(__dirname, "test_deployment.js")], { stdio: "inherit" });
 require("child_process").execFileSync(process.execPath, [require("path").join(__dirname, "test_link_guard.js")], { stdio: "inherit" });
 require("child_process").execFileSync(process.execPath, [require("path").join(__dirname, "test_async_state.js")], { stdio: "inherit" });
 const {

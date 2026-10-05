@@ -53,8 +53,8 @@
         </div>
         <div class="auth-heading">
           <span class="eyebrow eyebrow-dark">WELCOME BACK</span>
-          <h2>登录你的求职工作台</h2>
-          <p>查看投递的新进展，继续准备下一次机会。</p>
+          <h2 id="authTitle">登录你的求职工作台</h2>
+          <p id="authDescription">查看投递的新进展，继续准备下一次机会。</p>
         </div>
         <form id="authForm" class="auth-form">
           <label for="authEmail">邮箱
@@ -64,8 +64,8 @@
             <input type="password" id="authPassword" required autocomplete="current-password" minlength="8" placeholder="至少 8 位" />
             <span id="authPasswordHint" class="field-hint hidden">至少 8 位，且不能是过于常见的弱密码</span>
           </label>
-          <button type="submit" id="authSubmit" class="primary-btn auth-submit">登录</button>
-          <button type="button" id="authToggle" class="link-btn auth-toggle">还没有账号？注册一个</button>
+          <button type="submit" id="authSubmit" class="primary-btn auth-submit" disabled>正在连接…</button>
+          <button type="button" id="authToggle" class="link-btn auth-toggle hidden">还没有账号？注册一个</button>
           <p id="authError" class="error-text hidden" role="alert"></p>
         </form>
         <p class="auth-privacy">账号与会话数据仅保存在你的 DeerFlow 实例中。</p>
@@ -274,7 +274,7 @@
         </div>
         <div class="match-panel-input">
           <input type="url" id="baseUrlInput" inputmode="url" autocomplete="off" placeholder="粘贴飞书多维表格链接（Base / Wiki）" />
-          <a href="http://localhost:3000/workspace/capabilities" target="_blank" rel="noopener">管理连接</a>
+          <a id="capabilityCenterLink" href="/workspace/capabilities" target="_blank" rel="noopener">管理连接</a>
         </div>
         <p class="field-hint">仅只读获取岗位相关字段；每次匹配仍需上传本轮简历。</p>
       </div>
@@ -405,6 +405,7 @@
   </main>
 </section>
 
+<script src="runtime-config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

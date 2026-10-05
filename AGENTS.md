@@ -12,6 +12,17 @@ guide rather than expecting full detail here:
 - **[frontend/AGENTS.md](frontend/AGENTS.md)** — frontend depth: Next.js App Router layout,
   thread/streaming data flow, code style, commands.
 
+## JobScout deployment entry
+
+This fork's public entry is JobScout. `python scripts/jobscout.py init|doctor|up|down|status|logs|backup`
+drives `docker/docker-compose.jobscout.yaml` with an isolated, gitignored `.jobscout/`
+configuration directory. Keep root local development configs untouched. Nginx serves the
+standalone UI at `/` and retains the upstream Next.js Capability Center on the same origin.
+Gateway runs one worker; `/data` persists on a named volume. Public registration, mail and
+scheduling are off in this preset. Optional noVNC is owner-only, published on loopback and
+accessed remotely through SSH, never through the application's public proxy.
+See `jobscout-web/AGENTS.md`, `docs/jobscout/deployment.md`, and the deployment CI.
+
 ## What is DeerFlow
 
 DeerFlow is a LangGraph-based AI super-agent system with a full-stack architecture. The

@@ -120,6 +120,17 @@ WORKDIR /app
 # Copy backend with pre-built virtualenv from builder
 COPY --from=builder /app/backend ./backend
 
+# JobScout tracker uses Playwright independently of the generic browser tools.
+# Opt-in keeps upstream runtime images unchanged; install the browser matching
+# the locked Python package, including Linux libraries and a private login desktop.
+ARG INSTALL_JOBSCOUT_BROWSER=false
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN if [ "$INSTALL_JOBSCOUT_BROWSER" = "true" ]; then \
+      /app/backend/.venv/bin/python -m playwright install --with-deps chromium \
+      && apt-get update && apt-get install -y --no-install-recommends xvfb x11vnc novnc websockify \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
+
 # Expose Gateway API port.
 EXPOSE 8001
 

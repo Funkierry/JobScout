@@ -82,6 +82,19 @@ than claiming the server stopped. Restart Gateway after updating the backend.
 
 ## Run locally
 
+For a fresh machine or server, use the [Docker deployment guide](../docs/jobscout/deployment.md).
+It serves this client at `/`, proxies the Gateway on the same origin, and retains
+the upstream Capability Center for Feishu setup. Fresh instances create their
+first administrator directly in this UI. Registration follows the server's
+`registration_enabled` policy; connection failures offer a retry before any
+credentials are submitted.
+
+`runtime-config.js` contains public `window.JOBSCOUT_CONFIG` only. Set
+`gatewayBase: ""` for same-origin requests and `capabilityCenterUrl` for the
+connection-management page. With no override, HTTP localhost on port 5500 keeps
+the legacy Gateway :8001 / Capability Center :3000 behavior; other origins use
+the current site. Never put provider keys in this browser-visible file.
+
 Start the Gateway on `http://localhost:8001`, then serve this directory on port
 5500:
 

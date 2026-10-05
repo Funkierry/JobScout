@@ -1,5 +1,14 @@
 ## Service Startup Contracts
 
+`jobscout.py` is a standard-library-only, cross-platform deployment entry. It uses
+argument arrays (no shell), an explicit Compose project/env file, fresh secrets on
+first init, and exclusive file creation so repeat init preserves operator settings.
+Never print rendered Compose configuration or provider secrets. `up` waits for all
+health checks and fails visibly. `backup` pauses the SQLite writer before archiving
+the named data volume; routine down must not remove volumes. `jobscout_smoke.py`
+creates synthetic accounts and is only for disposable loopback CI instances.
+Tests: `backend/tests/test_jobscout_deployment.py`; images: `jobscout-deploy.yml`.
+
 Optional browser dependency detection reads the top-level `tools:` sequence
 without requiring `name` to be its first mapping key. Both indented and
 indentless lists are supported; nested option names and block-scalar text

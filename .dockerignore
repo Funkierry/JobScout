@@ -72,6 +72,11 @@ backend/.coverage
 # the build outright once the app has created directories owned by the container's
 # root that the build client cannot read.
 **/.deer-flow/
+**/.jobscout/
+local_eval/
+backend/test_artifacts/
+config.yaml
+extensions_config.json
 backend/sandbox/
 *.md
 !README.md
@@ -84,3 +89,4 @@ backend/sandbox/
 !backend/extensions/
 !backend/extensions/sources/
 !backend/extensions/sources/**
+!backend/scripts/jobscout_container.py

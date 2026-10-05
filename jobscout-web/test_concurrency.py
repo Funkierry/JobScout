@@ -22,6 +22,7 @@ def main():
             headers = {"Access-Control-Allow-Origin": "http://localhost:5500", "Access-Control-Allow-Credentials": "true", "Access-Control-Allow-Headers": "content-type,x-csrf-token", "Access-Control-Allow-Methods": "GET,POST,OPTIONS"}
             payloads = {
                 "/api/v1/auth/me": {"email": "demo@example.com"},
+                "/api/v1/auth/setup-status": {"needs_setup": False, "registration_enabled": True},
                 "/api/threads/search": [],
                 "/api/jobscout/opportunities": [],
                 "/api/jobscout/tracker/stages": STAGES,
@@ -36,9 +37,9 @@ def main():
                 r.abort()
             elif request.method == "OPTIONS":
                 r.fulfill(status=204, headers=headers)
-            elif path in ("/", "/app.js", "/style.css"):
+            elif path in ("/", "/app.js", "/runtime-config.js", "/style.css"):
                 name = "index.html" if path == "/" else path[1:]
-                r.fulfill(path=str(ROOT / name), content_type={"index.html": "text/html", "app.js": "text/javascript", "style.css": "text/css"}[name])
+                r.fulfill(path=str(ROOT / name), content_type={"index.html": "text/html", "app.js": "text/javascript", "runtime-config.js": "text/javascript", "style.css": "text/css"}[name])
             elif path.endswith("/cancel"):
                 cancellations.append(path)
                 r.fulfill(status=202, headers=headers)

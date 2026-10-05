@@ -90,6 +90,14 @@ user-facing behavior and the relevant `AGENTS.md` for development changes.
 
 ### Application tracker browser navigation
 
+The opt-in Docker build argument `INSTALL_JOBSCOUT_BROWSER=true` installs the
+locked Playwright Chromium and Linux desktop dependencies. The dedicated Compose
+preset runs `scripts/jobscout_container.py`: one Gateway worker, plus a supervised
+Xvfb/noVNC desktop only when `JOBSCOUT_BROWSER_LOGIN=1`. Without it, interactive
+login is disabled and checks stay headless. Preserve loopback-only desktop ports;
+the shared desktop is an instance-owner maintenance tool, not per-user isolation.
+The default upstream Docker build does not install these optional dependencies.
+
 JobScout tracker contracts, browser lifecycle, evidence rules and private baseline handling live in [app/application_tracker/AGENTS.md](app/application_tracker/AGENTS.md). Keep tracker changes isolated from the harness.
 
 JobScout source checks live in `app/jobscout/`. Enable `app.jobscout.middleware:JobScoutLinkMiddleware` through the existing configured-extension loader; never import app from harness. The UI sends `jobscout_mode` plus `jobscout_evidence_version=2` and consumes root `values`. V2 validates structured child/task results before aggregation (including Command transport), then renders fixed reports before checkpoints. Only actual current-run web results create sources. Reuse `app/evidence/grounding.py`; do not duplicate grounding. News requires a grounded date within 12 calendar months. Base scoring uses owner/thread-bound server snapshots and actual uploaded-resume reads, never model-provided records/totals. Preserve task lifecycle/token metadata when replacing raw summaries. Registry loss fails closed. New audits contain counts only, never source bodies or private data. Generic runs remain unchanged; v1 retains link filtering only. Raw provider callbacks/journal drafts are not verified reports. Keep grader, skill, UI live/history/export, and fake-graph tests aligned; see `docs/jobscout/evidence-guard.md` and `docs/jobscout/link-guard.md`.

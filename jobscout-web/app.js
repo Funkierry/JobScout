@@ -2,7 +2,32 @@
 // No build step: plain fetch + manual SSE parsing against the documented
 // Gateway shapes (login/CSRF, threads, uploads, runs/stream).
 
-const GATEWAY_BASE = "http://localhost:8001";
+function resolveDeploymentConfig(config = {}, location = {}) {
+  const localSplit = location.protocol === "http:" && location.port === "5500"
+    && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+  const localHost = location.hostname || "localhost";
+  const gatewayBase = config.gatewayBase ?? (localSplit ? `http://${localHost}:8001` : "");
+  const capabilityCenterUrl = config.capabilityCenterUrl
+    ?? (localSplit ? `http://${localHost}:3000/workspace/capabilities` : "/workspace/capabilities");
+  function validateUrl(value, allowPath) {
+    if (typeof value !== "string") throw new Error("部署地址必须是字符串");
+    if (allowPath && /^\/(?!\/)/.test(value) && !value.includes("\\")) return value;
+    if (!value && !allowPath) return "";
+    const parsed = new URL(value);
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password
+      || (!allowPath && (parsed.pathname !== "/" || parsed.search || parsed.hash))) {
+      throw new Error("部署地址必须是有效的 HTTP(S) 地址，且不能包含账号密码");
+    }
+    return allowPath ? parsed.href : parsed.origin;
+  }
+  return { gatewayBase: validateUrl(gatewayBase, false), capabilityCenterUrl: validateUrl(capabilityCenterUrl, true) };
+}
+
+const DEPLOYMENT = resolveDeploymentConfig(
+  typeof window !== "undefined" ? window.JOBSCOUT_CONFIG || {} : {},
+  typeof window !== "undefined" ? window.location || {} : {},
+);
+const GATEWAY_BASE = DEPLOYMENT.gatewayBase;
 
 const TERMINAL_TRACKER_STATUSES = new Set(["Offer", "未通过", "流程终止"]);
 const STOPPED_TRACKER_STATUSES = new Set(["未通过", "流程终止"]);
@@ -170,14 +195,24 @@ function beginViewRequest(key) {
 }
 
 async function checkSession() {
-  const res = await api("/api/v1/auth/me");
-  if (res.ok) {
-    const me = await res.json().catch(() => null);
-    currentUserEmail = me?.email || me?.id || "已登录";
-    onLoggedIn();
-    return true;
+  try {
+    const res = await api("/api/v1/auth/me");
+    if (res.ok) {
+      const me = await res.json().catch(() => null);
+      currentUserEmail = me?.email || me?.id || "已登录";
+      onLoggedIn();
+      return true;
+    }
+    if (res.status !== 401) throw new Error("暂时无法连接工作台，请稍后重试。");
+    show("authView");
+    await loadAuthPolicy();
+  } catch (error) {
+    show("authView");
+    authPolicy = null;
+    renderAuthForm();
+    $("authError").textContent = error.message || "暂时无法连接工作台，请重试。";
+    $("authError").classList.remove("hidden");
   }
-  show("authView");
   return false;
 }
 
@@ -203,15 +238,44 @@ function onLoggedIn() {
   loadOpportunities().catch((error) => console.error("loadOpportunities failed", error));
 }
 
-let authMode = "login"; // 'login' | 'register'
+let authMode = "login"; // 'login' | 'register' | 'initialize'
+let authPolicy = null;
+
+function authPresentation(status) {
+  if (typeof status?.needs_setup !== "boolean" || typeof status?.registration_enabled !== "boolean") {
+    throw new Error("无法读取账号设置，请重试连接。");
+  }
+  return { mode: status.needs_setup ? "initialize" : "login", allowRegistration: !status.needs_setup && status.registration_enabled };
+}
+
+function renderAuthForm() {
+  const initializing = authMode === "initialize";
+  $("authSubmit").disabled = false;
+  $("authSubmit").type = authPolicy ? "submit" : "button";
+  $("authSubmit").textContent = !authPolicy ? "重试连接" : initializing ? "创建管理员并进入" : authMode === "login" ? "登录" : "注册";
+  $("authToggle").classList.toggle("hidden", !authPolicy?.allowRegistration);
+  $("authToggle").textContent = authMode === "login" ? "还没有账号？注册一个" : "已有账号？去登录";
+  $("authPasswordHint").classList.toggle("hidden", authMode === "login");
+  $("authPassword").setAttribute("autocomplete", authMode === "login" ? "current-password" : "new-password");
+  $("authTitle").textContent = initializing ? "创建你的管理员账号" : "登录你的求职工作台";
+  $("authDescription").textContent = initializing ? "首次使用，先设置账号，随后进入工作台。" : "查看投递的新进展，继续准备下一次机会。";
+}
+
+async function loadAuthPolicy() {
+  authPolicy = authPresentation(await apiJson("/api/v1/auth/setup-status"));
+  authMode = authPolicy.mode;
+  renderAuthForm();
+  $("authError").classList.add("hidden");
+}
 
 function setupAuthForm() {
+  $("authSubmit").addEventListener("click", () => {
+    if (!authPolicy) checkSession();
+  });
   $("authToggle").addEventListener("click", () => {
+    if (!authPolicy?.allowRegistration) return;
     authMode = authMode === "login" ? "register" : "login";
-    $("authSubmit").textContent = authMode === "login" ? "登录" : "注册";
-    $("authToggle").textContent = authMode === "login" ? "还没有账号?注册一个" : "已有账号?去登录";
-    $("authPasswordHint").classList.toggle("hidden", authMode !== "register");
-    $("authPassword").setAttribute("autocomplete", authMode === "login" ? "current-password" : "new-password");
+    renderAuthForm();
   });
 
   $("authForm").addEventListener("submit", async (e) => {
@@ -221,6 +285,10 @@ function setupAuthForm() {
     const email = $("authEmail").value.trim();
     const password = $("authPassword").value;
     try {
+      if (!authPolicy) {
+        await checkSession();
+        return;
+      }
       if (authMode === "login") {
         const form = new URLSearchParams();
         form.set("username", email);
@@ -231,11 +299,13 @@ function setupAuthForm() {
           throw new Error(body?.detail?.message || "登录失败,请检查邮箱/密码");
         }
       } else {
-        await apiJson("/api/v1/auth/register", { method: "POST", json: { email, password } });
+        const action = authMode === "initialize" ? "initialize" : "register";
+        await apiJson(`/api/v1/auth/${action}`, { method: "POST", json: { email, password } });
       }
       currentUserEmail = email;
       onLoggedIn();
     } catch (err) {
+      if (authMode === "initialize" && err.status === 409) await loadAuthPolicy().catch(() => {});
       $("authError").textContent = err.message || String(err);
       $("authError").classList.remove("hidden");
     } finally {
@@ -281,6 +351,7 @@ function setupAuthForm() {
     renderThreadList();
     $("userBox").classList.add("hidden");
     show("authView");
+    await loadAuthPolicy().catch(() => { authPolicy = null; renderAuthForm(); });
   });
 }
 
@@ -2632,6 +2703,7 @@ function markdownToHtml(md) {
 // test the pure functions above (markdownToHtml, extractLastVisibleAiText,
 // looksLikeReport, withSkillPrefix) without a real browser.
 if (typeof document !== "undefined") {
+  $("capabilityCenterLink").href = DEPLOYMENT.capabilityCenterUrl;
   setupAuthForm();
   setupComposer();
   setupOpportunities();
@@ -2646,6 +2718,8 @@ if (typeof document !== "undefined") {
 
 if (typeof module !== "undefined") {
   module.exports = {
+    resolveDeploymentConfig,
+    authPresentation,
     markdownToHtml,
     extractLastVisibleAiText,
     jobScoutRunContext,

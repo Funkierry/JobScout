@@ -1,0 +1,105 @@
+# JobScout's isolated deployment; scripts/jobscout.py supplies the env file.
+services:
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args:
+        UV_EXTRAS: browser
+        INSTALL_JOBSCOUT_BROWSER: "true"
+    command: [/app/backend/.venv/bin/python, scripts/jobscout_container.py]
+    working_dir: /app/backend
+    init: true
+    shm_size: 1gb
+    env_file:
+      - ${JOBSCOUT_DEPLOY_DIR:-../.jobscout}/.env
+    environment:
+      PYTHONPATH: .
+      PYTHON_DOTENV_DISABLED: "1"
+      DEER_FLOW_PROJECT_ROOT: /app
+      DEER_FLOW_HOME: /data
+      DEER_FLOW_CONFIG_PATH: /config/config.yaml
+      DEER_FLOW_EXTENSIONS_CONFIG_PATH: /config/extensions_config.json
+      DEER_FLOW_STREAM_BRIDGE_REDIS_URL: redis://redis:6379/0
+      DEER_FLOW_CHANNELS_LANGGRAPH_URL: http://gateway:8001/api
+      DEER_FLOW_CHANNELS_GATEWAY_URL: http://gateway:8001
+      JOBSCOUT_ENFORCE_THREAD_BINDING: "1"
+      GATEWAY_WORKERS: "1"
+      APPLICATION_TRACKER_INTERACTIVE_LOGIN: ${JOBSCOUT_BROWSER_LOGIN:-0}
+      JOBSCOUT_BROWSER_LOGIN: ${JOBSCOUT_BROWSER_LOGIN:-0}
+      LANGSMITH_TRACING: "false"
+      LANGCHAIN_TRACING_V2: "false"
+      OTEL_SDK_DISABLED: "true"
+    volumes:
+      - ${JOBSCOUT_DEPLOY_DIR:-../.jobscout}/config.yaml:/config/config.yaml:ro
+      - ${JOBSCOUT_DEPLOY_DIR:-../.jobscout}/extensions_config.json:/config/extensions_config.json
+      - ../skills:/app/skills:ro
+      - jobscout-data:/data
+    # Only the optional browser viewer is published here; API remains internal.
+    # Never change this to 0.0.0.0. Remote access uses an authenticated SSH tunnel.
+    ports:
+      - "127.0.0.1:${JOBSCOUT_BROWSER_PORT:-6080}:6080"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, /app/backend/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=5)"]
+      interval: 5s
+      timeout: 6s
+      start_period: 30s
+      retries: 30
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+      target: prod
+    # Reuse upstream Capability Center for Feishu authorization and administration.
+    environment:
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Run python scripts/jobscout.py init first}
+      DEER_FLOW_INTERNAL_GATEWAY_BASE_URL: http://gateway:8001
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 8s
+      start_period: 30s
+      retries: 20
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:stable-alpine
+    ports:
+      - "${JOBSCOUT_BIND_HOST:-127.0.0.1}:${JOBSCOUT_PORT:-2026}:2026"
+    volumes:
+      - ./nginx/jobscout.conf:/etc/nginx/nginx.conf:ro
+      - ../jobscout-web:/usr/share/nginx/jobscout:ro
+      - ${JOBSCOUT_DEPLOY_DIR:-../.jobscout}/runtime-config.js:/usr/share/nginx/jobscout/runtime-config.js:ro
+    depends_on:
+      gateway:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:2026/health/ready"]
+      interval: 10s
+      timeout: 6s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  jobscout-data:
+  redis-data:

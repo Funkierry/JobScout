@@ -110,13 +110,14 @@ def main():
                 request_route.abort()
             elif request.method == "OPTIONS":
                 fulfill({})
-            elif path in ["/", "/index.html", "/app.js", "/style.css"]:
+            elif path in ["/", "/index.html", "/app.js", "/runtime-config.js", "/style.css"]:
                 name = "index.html" if path == "/" else path[1:]
                 request_route.fulfill(
                     path=str(ROOT / name),
                     content_type={
                         "index.html": "text/html",
                         "app.js": "text/javascript",
+                        "runtime-config.js": "text/javascript",
                         "style.css": "text/css",
                     }[name],
                 )
@@ -127,6 +128,8 @@ def main():
                     {"email": "demo@example.com"} if state["authenticated"] else {},
                     200 if state["authenticated"] else 401,
                 )
+            elif path == "/api/v1/auth/setup-status":
+                fulfill({"needs_setup": False, "registration_enabled": True})
             elif path in [
                 "/api/threads/search",
                 "/api/jobscout/opportunities",

@@ -49,6 +49,7 @@ coverage.xml
 coverage/
 .deer-flow/
 /local_eval/
+/.jobscout/
 .claude/
 skills/custom/*
 logs/

@@ -1,0 +1,68 @@
+name: JobScout deployment
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, jobscout/deployment-readme]
+    paths:
+      - '.github/workflows/jobscout-deploy.yml'
+      - 'deploy/jobscout/**'
+      - 'docker/docker-compose.jobscout.yaml'
+      - 'docker/nginx/jobscout.conf'
+      - 'backend/Dockerfile'
+      - 'backend/scripts/jobscout_container.py'
+      - 'scripts/jobscout*.py'
+      - 'jobscout-web/**'
+      - '.dockerignore'
+permissions:
+  contents: read
+concurrency:
+  group: jobscout-deploy-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  container-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Initialize synthetic deployment
+        run: |
+          python scripts/jobscout.py init
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.jobscout/.env')
+          text = p.read_text().replace('your-model-id', 'fixture-model').replace('replace-me', 'synthetic-key-not-a-credential').replace('https://your-provider.example/v1', 'https://model.invalid/v1')
+          p.write_text(text)
+          PY
+      - name: Pure frontend checks
+        run: node jobscout-web/test_pure.js
+      - name: Build and wait for all services
+        run: python scripts/jobscout.py up
+      - name: Fresh-instance smoke (no model calls)
+        run: python scripts/jobscout_smoke.py
+      - name: Browser runtime and restart persistence
+        run: |
+          docker compose --project-name jobscout --env-file .jobscout/.env -f docker/docker-compose.jobscout.yaml exec -T gateway /app/backend/.venv/bin/python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(); page=b.new_page(); page.set_content('<title>JobScout fixture</title>'); assert page.title()=='JobScout fixture'; b.close(); p.stop(); print('Chromium ready')"
+          python scripts/jobscout.py down
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.jobscout/.env')
+          p.write_text(p.read_text().replace('JOBSCOUT_BROWSER_LOGIN=0', 'JOBSCOUT_BROWSER_LOGIN=1'))
+          PY
+          python scripts/jobscout.py up
+          docker compose --project-name jobscout --env-file .jobscout/.env -f docker/docker-compose.jobscout.yaml exec -T gateway /app/backend/.venv/bin/python -c "import os; from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=False, env={**os.environ, 'DISPLAY': ':99'}); page=b.new_page(); page.set_content('<title>Login fixture</title>'); assert page.title()=='Login fixture'; b.close(); p.stop(); print('Headed Chromium ready')"
+          python - <<'PY'
+          import json, urllib.request
+          status = json.load(urllib.request.urlopen('http://127.0.0.1:2026/api/v1/auth/setup-status'))
+          assert status['needs_setup'] is False
+          assert urllib.request.urlopen('http://127.0.0.1:6080/vnc.html').status == 200
+          print('Administrator survived compose down/up')
+          PY
+      - name: Service diagnostics
+        if: failure()
+        run: docker compose --project-name jobscout --env-file .jobscout/.env -f docker/docker-compose.jobscout.yaml logs --tail 80
+      - name: Stop disposable services
+        if: always()
+        run: python scripts/jobscout.py down

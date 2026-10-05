@@ -1,30 +1,100 @@
-# JobScout
+# JobScout · 把投递进度，变成清晰的下一步
 
-**把每一份投递的进度、变化和原文依据，放在一个工作台里。**
+**投了哪些岗位、现在走到哪一步、接下来该准备什么——在一个工作台里接着做。**
 
-JobScout 是基于 DeerFlow 的求职应用，以投递进度追踪为主线，连接面试准备与飞书 Base 岗位匹配。它读取本人已授权的招聘页面，记录每个岗位的状态；信息不足就保留未知，发现变化就展示来源证据。
+JobScout 是基于 [DeerFlow](README_DEERFLOW.md) 二次开发的 AI 求职应用。它把招聘官网的投递状态、目标岗位、面试准备和飞书岗位库连接起来：先看进展，再核对原文，最后带着岗位上下文准备下一轮。
 
-[功能与护栏](docs/jobscout/guardrails.md) · [真实指标与待验证项](docs/jobscout/metrics.md) · [上游 DeerFlow 文档](README_DEERFLOW.md)
+[快速部署](#快速部署) · [功能示例](#一次具体的使用过程) · [架构与个人贡献](#我的贡献) · [部署说明](docs/jobscout/deployment.md) · [实际评测](docs/jobscout/metrics.md)
 
-![JobScout 投递进度工作台，使用合成数据](docs/jobscout/tracker-workspace.png)
+![JobScout 投递工作台：概览、环节筛选、状态变化与原文证据；画面使用合成数据](docs/jobscout/tracker-workspace.png)
 
-界面截图来自完全拦截网络请求的本地浏览器 fixture，所有公司、岗位与账号均为合成数据。新版默认进入投递追踪，提供可折叠概览、环节筛选与移动端卡片视图；桌面列表支持独立滚轮滚动与固定表头，[查看手机界面](docs/jobscout/tracker-mobile.png)。
+*截图来自拦截全部网络请求的本地测试；公司、岗位和账号均为合成数据。[查看手机界面](docs/jobscout/tracker-mobile.png)。*
 
-历史对话右侧的删除按钮会先确认，删除后保留目标岗位与投递记录。正在运行的对话需等任务结束再删。紧凑布局的一屏完整可见岗位数，在 1440×1000 的离线浏览器测试中从 6 条增至 11 条；测量口径见 [指标记录](docs/jobscout/metrics.md#历史删除与列表滚动优化2026-10-04)。
+## 一次具体的使用过程
 
-刷新投递时可以同时与 AI 对话，并在进度与当前对话之间切换。两项任务分别显示状态、提供停止按钮；刷新完成显示通知，点击“查看结果”查看详情。检查超时会保留此前进度；配置与取消边界见 [抓取策略](docs/jobscout/tracker-stability.md#并发取消与期限)。更新后需重启 Gateway 并刷新浏览器。
+> 以下是功能使用示例，不代表真实公司或真实投递结果。
 
-## 从投递到下一轮面试
+你正在准备“远山科技 · 后端开发工程师”，同时跟进另外几家公司的笔试和面试。
 
-1. **添加投递**：填写公司与个人申请列表/详情链接，复用本地登录 profile；多岗位列表按岗位分别记录。
-2. **核对进展**：同站 JSON 优先、页面正文兜底，点击状态查看原文、规则置信度与检查时间。投递日期必须有原文，不猜时间。
-3. **跟踪变化**：单条/批量刷新、环节筛选、手动阶段、CSV 导入导出。可配置定时刷新与每日上限，已确认状态变化进入站内通知。
-4. **补充来源**：可选只读 Gmail/IMAP 招聘邮件。仅在更晚、更具体且不冲突时采用邮件状态，界面保留来源与待核对项。
-5. **准备下一轮**：把投递关联到目标岗位，进入有来源的面试准备；也可上传简历与已授权飞书岗位库匹配，逐项查看简历原文依据。
+1. **把投递放进来。** 添加自己在招聘官网的“我的投递”链接。如果一页里有多个岗位，JobScout 按能核对的岗位分别保存；遇到登录页，就等待你完成授权登录。
+2. **看看今天变了什么。** 点击刷新。如果状态从“一面”变为“二面”，列表会展示变化；点击状态，可以看到官网原文、来源链接和检查时间，而不只是一个没有出处的标签。
+3. **带着这个岗位继续准备。** 把记录关联到目标岗位，点击“准备下一轮”。岗位和当前阶段进入准备输入框，你确认后再发送；已有的准备对话也能继续。
+4. **把简历和要求放在一起看。** 上传 PDF/DOCX 简历，结合 JD 进行准备；如果你有授权的飞书岗位库，还可以查看候选岗位及对应的简历原文依据。
+5. **回来看时，线索还在。** 切换目标岗位会恢复对应会话；检查历史、手动修正和来源依据保留。删除一段历史对话，也不会顺手删掉目标岗位和投递记录。
 
-邮件与定时刷新默认关闭；定时刷新默认不调用模型。普通模型研究和手动检查的模型回退可能产生费用，真实验证需使用者主动运行。
+面试准备可以这样开始：
+
+```text
+我准备应聘远山科技的后端开发实习生，方向是 Python / AI Agent。
+这是岗位 JD 和我的简历。请整理岗位要求、相关经历差距和有依据的面试准备问题。
+```
+
+没有可靠来源的公司信息不会补写成事实；缺少可核验经历时，报告会保留信息边界。JobScout 记录和辅助准备的对象是你自己的投递，关联目标岗位不会替你提交申请。
+
+## 能帮你完成什么
+
+| 场景 | 你提供什么 | 工作台给你什么 |
+|---|---|---|
+| **集中跟进投递** | 本人的官网申请列表或详情链接 | 岗位记录、统一阶段、原文证据、检查历史与状态变化 |
+| **准备下一轮面试** | 公司、岗位方向、招聘类型；可补充 JD 和简历 | 公司与岗位调研、来源明确的准备问题、简历差距与信息边界 |
+| **从岗位库找方向** | 简历、已授权的飞书 Base/Wiki 链接 | 有记录标识的候选岗位、匹配依据、“保存并准备”入口 |
+| **管理已有记录** | 手动整理或 CSV 导入的投递数据 | 环节筛选、单条/批量刷新、手动修正、CSV 导出和移动端卡片 |
+| **补充招聘邮件** | 自行配置的只读 Gmail/IMAP 授权 | 邮件事件、来源与冲突提示；不会把模糊邮件直接当作状态确认 |
+| **减少重复检查** | 自行设置刷新频率和每日额度 | 定时检查与确认变化后的站内通知；默认关闭 |
+
+**刷新和聊天可以同时进行。** 两项任务各有状态与停止按钮；刷新完成后收到通知，你可以继续当前对话，也可以点击“查看结果”。桌面表格支持固定表头和独立滚动，窄屏改用卡片；历史对话支持搜索与确认后删除。
+
+**状态有依据，未知也有位置。** 优先读取同站 JSON 与页面正文，已适配飞书/字节同结构、腾讯和小红书的部分 ATS 返回。适配范围是经过回放验证的具体结构，不是所有招聘网站。宽泛进度保留原话，投递日期需要明确原文，缺失或冲突项留待核对。
+
+## 快速部署
+
+需要 **Docker Compose v2.20+** 和 **Python 3.10+**。宿主机不需要安装前端、后端和浏览器依赖。
+
+```bash
+git clone https://github.com/Funkierry/JobScout.git
+cd JobScout
+python scripts/jobscout.py init
+```
+
+编辑 `.jobscout/.env` 中的三个模型参数：
+
+```dotenv
+JOBSCOUT_MODEL=你的模型标识
+JOBSCOUT_MODEL_API_KEY=你的模型API密钥
+JOBSCOUT_MODEL_BASE_URL=https://你的服务商/v1
+```
+
+模型需支持 OpenAI 兼容 Chat API 与工具调用。然后运行：
+
+```bash
+python scripts/jobscout.py doctor
+python scripts/jobscout.py up
+```
+
+打开 **http://localhost:2026**，创建管理员账号即可进入工作台。首次构建会下载依赖并编译上游能力中心；命令会等待健康检查通过后才报告启动成功。
+
+这套入口会为你准备：
+
+- **独立配置目录：** `.jobscout/`，初始化不覆盖原来根目录的本地开发配置。
+- **统一访问地址：** JobScout 页面、API 和飞书能力中心共用一个入口，网页不再写死 localhost 后端。
+- **完整浏览器依赖：** 镜像中安装对应版本的 Chromium 与系统库。
+- **持久化数据卷：** 保存账号、会话、投递、上传文件和浏览器登录态。
+- **首次账号设置：** 新实例直接创建管理员；公开注册默认关闭。
+- **维护命令：** 查看状态和日志、备份数据、停止与重新构建。
+
+```bash
+python scripts/jobscout.py status
+python scripts/jobscout.py logs
+python scripts/jobscout.py backup
+python scripts/jobscout.py down
+```
+
+**部署到服务器时，招聘网站登录怎么办？** 默认无头检查遇到登录会显示“需登录”。可启用私有远程浏览器，在 SSH 隧道中完成登录/验证码，再复用保存的登录态。[完整步骤、HTTPS、备份和故障排查 →](docs/jobscout/deployment.md)
+
+默认服务仅绑定本机回环地址，适合个人自托管或可信小范围使用。模型调研和部分解析回退可能产生服务商费用；邮件和定时刷新默认关闭。公网多人使用还需要按实际场景完善配额、浏览器会话隔离及运维能力。
 
 ## 我的贡献
+
 
 本仓库新增的 JobScout 业务能力与 DeerFlow 上游基础设施分开维护：
 
@@ -42,6 +112,7 @@ JobScout 是基于 DeerFlow 的求职应用，以投递进度追踪为主线，�
 DeerFlow 上游提供 Agent runtime、认证、工具与技能基础设施、持久化检查点、通用 scheduler 和原 Next.js 客户端。JobScout 复用这些能力，通过专属 assistant、应用中间件和部署开关隔离业务行为；不把上游能力计作个人新增成果。
 
 ## JobScout 架构
+
 
 图中只画本项目的业务组件；运行、认证和调度底座由 DeerFlow 提供。
 
@@ -68,6 +139,7 @@ flowchart TB
 
 ## 已测到什么
 
+
 数字来自 [metrics.md](docs/jobscout/metrics.md)，更新于 2026-10-04。当前仅有 20 条证据明确的辅助标签，另有 2 条待核对；未达到 50–100 条目标，尚未独立人工复核。开发快照没有独立留出集，不能宣称生产准确率。
 
 | 指标 | 实际结果 | 范围 |
@@ -84,40 +156,49 @@ flowchart TB
 
 护栏如何校验、不能保证什么，以及阶段前后对照，见 [guardrails.md](docs/jobscout/guardrails.md)。未把测试通过数当作真实业务效果。
 
-## 本地运行
+## 开发与验证
 
-按 [上游安装说明](README_DEERFLOW.md#quick-start) 安装依赖并创建本地 `config.yaml` 与 `extensions_config.json`；这些文件不提交。在已有环境中，Windows 可运行：
+已有本地环境可以继续使用原来的两个启动入口：
 
 ```powershell
-# 两个终端，仓库根目录
+# 在仓库根目录，分别放在两个终端运行
 scripts/run-jobscout-gateway-local.cmd
 scripts/run-jobscout-web-local.cmd
 ```
 
-打开 **http://localhost:5500**，Gateway 默认 **http://localhost:8001**。Gateway 的 `GATEWAY_CORS_ORIGINS` 需允许 `http://localhost:5500`。本地服务绑定 `127.0.0.1`，面向可信的本机使用。
+打开 `http://localhost:5500`，Gateway 为 `http://localhost:8001`。依赖安装与根目录配置见[上游安装说明](README_DEERFLOW.md#quick-start)。该分离端口模式需要 `GATEWAY_CORS_ORIGINS` 包含 `http://localhost:5500`；JobScout 中间件和严格线程绑定按[入口配置](docs/jobscout/entry-routing.md)启用。Docker 专用配置已包含这些 JobScout 开关。
 
-JobScout 报告需要注册应用中间件，严格线程入口需要 `JOBSCOUT_ENFORCE_THREAD_BINDING=1`；具体见 [入口配置](docs/jobscout/entry-routing.md) 与 [证据校验](docs/jobscout/evidence-guard.md)。不要省略配置后把未校验输出当作受护栏保护的报告。
-
-- [Tracker 抓取策略与配置](docs/jobscout/tracker-stability.md)
-- [ATS 范围与回放](docs/jobscout/ats-adapters.md)
-- [邮件只读授权与本地凭据](docs/jobscout/mail-channel.md)
-- [定时刷新、每日额度与通知](docs/jobscout/scheduled-refresh.md)
-- [页面使用说明](jobscout-web/README.md)
-
-真实页面快照、简历、邮件和逐条预测留在 gitignore 的本地目录；GitHub 只保存合成 fixture、代码及汇总指标。模型抽取启用后会将所需正文发送给配置的模型供应商。
-
-## 离线验证
+离线回归使用合成页面与接口，不需要真实简历、招聘账户或模型密钥：
 
 ```powershell
 node jobscout-web/test_pure.js
+backend/.venv/Scripts/python.exe -B jobscout-web/test_deployment.py
 backend/.venv/Scripts/python.exe -B jobscout-web/test_ui.py
-backend/.venv/Scripts/python.exe -B -m unittest discover -s skills/public/jobscout/scripts -p "test_*.py"
-# 在 backend 目录运行，阻断外网并禁用本地 dotenv
+backend/.venv/Scripts/python.exe -B jobscout-web/test_history_scroll.py
+backend/.venv/Scripts/python.exe -B jobscout-web/test_concurrency.py
+# 在 backend 目录执行，阻断外网并禁用本地 dotenv
 .venv/Scripts/python.exe -B scripts/jobscout_offline_tests.py
 ```
 
-阶段 7 的专项 pytest 为 **331 项通过**，技能 unittest **18 项通过**，前端纯函数测试通过。完整后端回归仍受既有 Windows BoxLite 权限断言及 blocking-I/O 环境失败影响；完整记录见 [metrics.md](docs/jobscout/metrics.md)。
+Linux/macOS 将 Python 路径替换为 `backend/.venv/bin/python`，或在 backend 目录使用 `.venv/bin/python`。
+
+[部署 CI](.github/workflows/jobscout-deploy.yml) 在临时 Linux 实例验证镜像构建、首次初始化、同域认证、持久化与 Chromium 启动；它不代表真实招聘网站和模型服务已经验收。前端测试还覆盖注册策略、连接重试、桌面/移动端、任务并发、取消及历史记录操作。
+
+## 继续了解
+
+| 想了解什么 | 文档 |
+|---|---|
+| 如何部署、升级、备份和登录招聘网站 | [部署指南](docs/jobscout/deployment.md) |
+| 工作台如何操作、目标岗位如何联动 | [页面使用说明](jobscout-web/README.md) |
+| 状态来源、置信度、并发和取消规则 | [追踪策略](docs/jobscout/tracker-stability.md) |
+| 已适配哪些 ATS，如何回放验证 | [ATS 适配器](docs/jobscout/ats-adapters.md) |
+| 报告如何校验引用和简历依据 | [证据校验](docs/jobscout/evidence-guard.md) · [功能边界](docs/jobscout/guardrails.md) |
+| 邮件和定时功能如何开启 | [只读邮件](docs/jobscout/mail-channel.md) · [定时刷新](docs/jobscout/scheduled-refresh.md) |
+| 哪些结果已经测过，哪些仍待验证 | [指标记录](docs/jobscout/metrics.md) |
+
+真实页面快照、简历、邮件和逐条预测保存在 gitignore 的本地目录；仓库只保存代码、合成 fixture 与汇总指标。启用模型抽取后，所需正文会发送给你配置的模型供应商。
 
 ## 上游与许可
+
 
 基于 ByteDance DeerFlow，遵循 [MIT License](LICENSE)。上游 README 已原样移至 [README_DEERFLOW.md](README_DEERFLOW.md)，保留安装、架构、安全与贡献者说明；来源对应本地上游提交 `f9f3127dc144f231acae9a522edd36ffbc96e439`。

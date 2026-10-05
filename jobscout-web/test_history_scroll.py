@@ -35,7 +35,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     assets = {
         name: subprocess.check_output(["git", "show", f"{args.baseline_ref}:jobscout-web/{name}"], cwd=ROOT.parent).decode("utf-8") if args.baseline_ref else (ROOT / name).read_text(encoding="utf-8")
-        for name in ("index.html", "app.js", "style.css")
+        for name in ("index.html", "app.js", "runtime-config.js", "style.css")
     }
     rows = [{**fixtures()[i % 6], "id": i + 1, "company": f"示例公司 {i + 1:03d}"} for i in range(100)]
     title = '面试准备 <img src=x onerror="alert(1)">'
@@ -77,9 +77,9 @@ def main():
                 request_route.abort()
             elif request.method == "OPTIONS":
                 fulfill({})
-            elif path in ("/", "/index.html", "/app.js", "/style.css"):
+            elif path in ("/", "/index.html", "/app.js", "/runtime-config.js", "/style.css"):
                 name = "index.html" if path == "/" else path[1:]
-                request_route.fulfill(body=assets[name], content_type={"index.html": "text/html", "app.js": "text/javascript", "style.css": "text/css"}[name])
+                request_route.fulfill(body=assets[name], content_type={"index.html": "text/html", "app.js": "text/javascript", "runtime-config.js": "text/javascript", "style.css": "text/css"}[name])
             elif path == "/favicon.ico":
                 request_route.fulfill(status=204)
             elif path == "/api/v1/auth/me":
