@@ -1,0 +1,52 @@
+name: JobScout regression
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'jobscout-web/**'
+      - 'scripts/jobscout*.py'
+      - 'deploy/jobscout/**'
+      - 'docker/**'
+      - '.github/workflows/jobscout-checks.yml'
+permissions:
+  contents: read
+concurrency:
+  group: jobscout-regression-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  offline-and-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.11.1'
+      - name: Install locked dependencies and browser
+        working-directory: backend
+        run: |
+          uv sync --locked --group dev --extra browser
+          uv run --no-sync python -m playwright install --with-deps chromium
+      - name: Offline backend regressions (external sockets blocked)
+        working-directory: backend
+        run: uv run --no-sync python scripts/jobscout_offline_tests.py --junitxml ../local_eval/ci/jobscout.xml
+      - name: Standalone client regressions (intercepted requests only)
+        run: |
+          node jobscout-web/test_pure.js
+          backend/.venv/bin/python jobscout-web/test_deployment.py
+          backend/.venv/bin/python jobscout-web/test_ui.py
+          backend/.venv/bin/python jobscout-web/test_history_scroll.py
+          backend/.venv/bin/python jobscout-web/test_concurrency.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jobscout-synthetic-results
+          path: |
+            local_eval/ci/
+            local_eval/ui/

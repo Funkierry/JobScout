@@ -305,9 +305,14 @@ async def test_gateway_binds_owned_thread_and_prevents_assistant_switch(monkeypa
     from app.gateway.services import start_run
     from app.jobscout.admission import BINDING_KEY
     from app.jobscout.entry_graph import assemble_jobscout
+    from deerflow.config.app_config import AppConfig
     from deerflow.runtime import RunManager
     from deerflow.runtime.runs.store.memory import MemoryRunStore
     from deerflow.runtime.user_context import get_effective_user_id
+
+    config = AppConfig.model_validate({"sandbox": {"use": "deerflow.sandbox.local:LocalSandboxProvider"}})
+    monkeypatch.setattr("app.gateway.deps.get_app_config", lambda: config)
+    monkeypatch.setattr("app.gateway.services.get_app_config", lambda: config)
 
     monkeypatch.setenv("JOBSCOUT_ENFORCE_THREAD_BINDING", "1")
     manager = RunManager(store=MemoryRunStore())

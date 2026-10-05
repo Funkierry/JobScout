@@ -1017,7 +1017,7 @@ function showTrackerBatchResult(rows) {
 
 function setTrackerBusy(busy) {
   trackerBusy = busy;
-  for (const id of ["trackerStagesBtn", "trackerExportBtn", "trackerRefreshAllBtn"]) {
+  for (const id of ["trackerStagesBtn", "trackerImportBtn", "trackerExportBtn", "trackerRefreshAllBtn"]) {
     if ($(id)) $(id).disabled = busy;
   }
   renderTrackerRows();
@@ -1391,8 +1391,8 @@ async function refreshTrackerRow(applicationId) {
     const added = trackerRows.filter((row) => !knownIds.has(row.id)).length;
     renderTrackerRows();
     loadOpportunities().catch((error) => console.error("loadOpportunities failed", error));
-    setTrackerProgress(outcome.skipped ? "该岗位已是终态，已跳过" : "检查完成", 1, 1, true);
-    const message = outcome.skipped ? "该记录已处于终态，本次没有重新抓取"
+    setTrackerProgress(outcome.skipped ? "已跳过重复或失效的检查" : "检查完成", 1, 1, true);
+    const message = outcome.skipped ? (outcome.reason === "terminal_status" ? "该记录已处于终态，本次没有重新抓取" : "记录已更新，已保留最新内容并忽略重复或过期的检查结果。")
       : outcome.application.check_result !== "成功" ? "本次检查未完成，已保留此前进度；请查看结果后重试。"
       : `刷新完成；已将页面中识别到的岗位和进度写入表格${added ? `，新增 ${added} 条岗位记录` : ""}`;
     notifyTrackerResult(outcome.application, message);
@@ -1520,6 +1520,8 @@ function setupTracker() {
     if (panel && !panel.classList.contains("hidden")) renderTrackerStageEditor();
   });
   $("trackerExportBtn")?.addEventListener("click", () => exportTrackerCsv().catch((error) => showTrackerError(error.message || String(error))));
+  $("trackerImportBtn")?.addEventListener("click", () => $("trackerCsvInput").click());
+  $("trackerCsvInput")?.addEventListener("change", importTrackerCsv);
   $("trackerResultClose")?.addEventListener("click", () => $("trackerResultDialog")?.close());
   $("trackerAddForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();

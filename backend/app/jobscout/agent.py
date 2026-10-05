@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, tool
 
+from .budget import JobScoutBudgetMiddleware, RunTokenBudget
 from .middleware import JobScoutLinkMiddleware
 from .tool_policy import JobScoutToolPolicy
 
@@ -34,12 +35,13 @@ def load_tools(mode, *, app_config, resumes):
     return selected
 
 
-def assemble_research_agent(*, mode, context, app_config, resumes, child=False, anchor=None):
+def assemble_research_agent(*, mode, context, app_config, resumes, child=False, anchor=None, budget=None):
     from deerflow.agents.lead_agent.agent import _authorize_model_name
     from deerflow.authz.tool_filter import apply_tool_authorization
     from deerflow.models.factory import create_chat_model
     from deerflow.utils.assembly_io import run_assembly
 
+    budget = budget if budget is not None else RunTokenBudget(app_config.token_budget)
     model_name = context.get("model_name") or (app_config.models[0].name if app_config.models else None)
     if not model_name or app_config.get_model_config(model_name) is None:
         raise ValueError("JobScout requires a configured main model")
@@ -61,7 +63,7 @@ def assemble_research_agent(*, mode, context, app_config, resumes, child=False, 
             remaining -= 1
             async with semaphore, asyncio.timeout(180):
                 child_context = {**context, "is_subagent": True}
-                agent = await run_assembly(assemble_research_agent, mode=mode, context=child_context, app_config=app_config, resumes=resumes, child=True, anchor=anchor)
+                agent = await run_assembly(assemble_research_agent, mode=mode, context=child_context, app_config=app_config, resumes=resumes, child=True, anchor=anchor, budget=budget)
                 result = await agent.ainvoke({"messages": [HumanMessage(prompt[:20000])]}, config={**config, "recursion_limit": min(config.get("recursion_limit", 50), 50)}, context=child_context)
                 final = next((message for message in reversed(result.get("messages", [])) if isinstance(message, AIMessage) and not message.tool_calls), None)
                 return final.content if final and isinstance(final.content, str) else "研究子任务未返回结构化证据。"
@@ -79,7 +81,7 @@ def assemble_research_agent(*, mode, context, app_config, resumes, child=False, 
         model=model,
         tools=policy.filter_tools(tools),
         system_prompt=system,
-        middleware=[policy, JobScoutLinkMiddleware(trusted_resumes=resumes, trusted_anchor=anchor)],
+        middleware=[policy, JobScoutLinkMiddleware(trusted_resumes=resumes, trusted_anchor=anchor), JobScoutBudgetMiddleware(budget)],
         checkpointer=False,
         name="jobscout_research_child" if child else "jobscout_research",
     )

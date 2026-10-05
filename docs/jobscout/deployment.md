@@ -107,7 +107,16 @@ python scripts/jobscout.py backup
 python scripts/jobscout.py down
 ```
 
-`backup` 会暂停 Gateway 写入，打包完整 `/data`，再恢复 Gateway。备份在 `.jobscout/backups/`，其中包括登录态和个人材料，应按私有文件保存。另行备份部署 `.env` 与配置文件，并保持认证密钥稳定。普通 `down` 不删除数据；不要为例行升级添加 `-v`。
+`backup` 会暂停 Gateway 写入，归档 `/data` 中的普通文件和目录，再恢复 Gateway。浏览器临时 Singleton 锁文件不进入备份；其他符号链接和特殊文件会使备份报错，避免产生无法恢复的归档。备份在 `.jobscout/backups/`，其中包括登录态和个人材料，应按私有文件保存。另行备份部署 `.env` 与配置文件，并保持认证密钥稳定。普通 `down` 不删除数据。
+
+恢复到新实例或演练恢复时，先 `down`，保留原部署配置与密钥，在 `.jobscout/.env` 中将 `JOBSCOUT_DATA_VOLUME` 设置为一个全新的卷名，例如 `jobscout-restored-data`，然后运行：
+
+```bash
+python scripts/jobscout.py restore --archive .jobscout/backups/jobscout-YYYYMMDDTHHMMSSZ.tar.gz
+python scripts/jobscout.py up
+```
+
+命令要求 Gateway 已停止，并拒绝向非空卷写入。恢复前使用原版本镜像/代码，确认账号、投递和文件后再升级。归档路径会先校验，再在临时目录解包；原数据卷一直保留，切回原卷名即可重新启动旧数据。第一次运行恢复命令需要本地已有构建镜像。Redis 是事件传输缓存，不在数据备份中；持久会话和运行记录由 `/data` 数据库恢复。
 
 更新代码后再次运行 `python scripts/jobscout.py up` 即可重建并检查健康状态。更新前先备份；有数据库迁移的版本应结合对应变更说明安排回退。
 
@@ -116,7 +125,7 @@ python scripts/jobscout.py down
 - **飞书匹配：** 点击“管理连接”进入同域能力中心，完成应用配置和个人授权后，再提交有权限的 Base/Wiki 链接。
 - **邮件：** Gmail/IMAP 仍是手动配置的只读集成，见[邮件配置](mail-channel.md)。不要把本机凭据路径原样搬进容器。
 - **定时刷新：** 默认关闭，需同时启用服务端调度和用户自己的频率、每日额度，见[调度说明](scheduled-refresh.md)。
-- **模型与搜索：** 日常调研、部分解析回退可能产生模型费用。默认提供单次 Token 预算和调用并发限制，它们不是账户总消费上限。搜索默认使用 DDG，网页读取使用 Jina；可按自己的网络环境更换提供方。
+- **模型与搜索：** `token_budget.max_tokens` 默认 200000，研究主/子 Agent 共用预算，单条投递的结构化提取和规划回退共用另一份预算。用量在模型响应后累计，达到总量、输入或输出阈值，或供应商不返回用量时，停止后续调用。单次响应及已经在途的子任务可能超出阈值；这不是账户账单硬上限。搜索默认使用 DDG，网页读取使用 Jina；可按自己的网络环境更换提供方。
 
 ## 7. 排查常见问题
 

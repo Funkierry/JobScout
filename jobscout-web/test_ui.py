@@ -110,7 +110,13 @@ def main():
                 request_route.abort()
             elif request.method == "OPTIONS":
                 fulfill({})
-            elif path in ["/", "/index.html", "/app.js", "/runtime-config.js", "/style.css"]:
+            elif path in [
+                "/",
+                "/index.html",
+                "/app.js",
+                "/runtime-config.js",
+                "/style.css",
+            ]:
                 name = "index.html" if path == "/" else path[1:]
                 request_route.fulfill(
                     path=str(ROOT / name),
@@ -147,6 +153,11 @@ def main():
                     else rows,
                     503 if state["failure"] else 200,
                 )
+            elif path == "/api/jobscout/tracker/import":
+                assert request.method == "POST"
+                assert "text/csv" in request.post_data
+                state["imported"] = True
+                fulfill({"inserted": 1, "updated": 0, "total": 1})
             elif path == "/api/jobscout/tracker/notifications":
                 fulfill(
                     [
@@ -197,6 +208,18 @@ def main():
             expect(page.locator("#trackerTotalCount")).to_have_text("6")
             expect(page.locator("#trackerActiveCount")).to_have_text("4")
             expect(page.locator("#trackerReviewCount")).to_have_text("1")
+            with page.expect_file_chooser() as chooser:
+                page.locator("#trackerImportBtn").click()
+            chooser.value.set_files(
+                {
+                    "name": "fixture.csv",
+                    "mimeType": "text/csv",
+                    "buffer": b"company,role,url,applied_at,notes\nExample,Backend,https://example.test/jobs,,fixture\n",
+                }
+            )
+            expect(page.locator("#trackerProgress")).to_contain_text("导入完成")
+            assert state["imported"]
+            expect(page.locator("#trackerImportBtn")).to_be_enabled()
             page.locator(".tracker-filter-tag").filter(has_text="笔试").click()
             expect(page.locator(".tracker-row")).to_have_count(1)
             page.locator(".tracker-filter-tag").filter(has_text="全部").click()

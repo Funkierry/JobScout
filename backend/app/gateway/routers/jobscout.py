@@ -1,12 +1,12 @@
 """Authenticated JobScout Base, opportunity, and application endpoints."""
 
 import asyncio
-import csv
-import io
 import json
 import logging
 from contextlib import aclosing
 from dataclasses import asdict
+from functools import lru_cache
+from threading import Lock
 
 from anyio import CancelScope
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -15,6 +15,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.application_tracker.agent.workflow import ApplicationTrackerAgent
+from app.application_tracker.csv_export import export_applications
 from app.application_tracker.csv_import import (
     DEFAULT_MAX_BYTES,
     CsvImportError,
@@ -29,6 +30,7 @@ from app.application_tracker.store import (
     StoredCheck,
     StoredMatchCandidate,
     StoredOpportunity,
+    default_database_path,
 )
 from app.application_tracker.tasks import keepalive_stream, until_disconnected
 from app.application_tracker.update_service import (
@@ -50,8 +52,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jobscout", tags=["jobscout"])
 
 
+_store_init_lock = Lock()
+
+
+@lru_cache(maxsize=4)
+def _store_for_path(path) -> ApplicationTrackerStore:
+    return ApplicationTrackerStore(path)
+
+
 def _tracker_store() -> ApplicationTrackerStore:
-    return ApplicationTrackerStore()
+    # The repository owns no live connection; only migrate once per database.
+    with _store_init_lock:
+        return _store_for_path(default_database_path())
 
 
 async def _get_tracker_store() -> ApplicationTrackerStore:
@@ -559,27 +571,8 @@ async def put_tracker_stages(body: TrackerStagesUpdate, request: Request) -> lis
 async def export_tracker_csv(request: Request) -> Response:
     del request
     rows = await asyncio.to_thread((await _get_tracker_store()).list_applications, get_effective_user_id())
-    output = io.StringIO(newline="")
-    writer = csv.writer(output)
-    writer.writerow(["公司", "岗位", "投递日期", "投递日期原文", "自定义环节", "识别状态", "页面原始状态", "查询链接", "识别结果", "最近检查时间", "置信度", "证据"])
-    for row in rows:
-        writer.writerow(
-            [
-                row.company,
-                row.role,
-                row.applied_at or "",
-                row.applied_at_evidence,
-                row.stage,
-                row.status.value,
-                row.raw_status,
-                row.url,
-                row.check_result.value if row.check_result else "",
-                row.checked_at.isoformat() if row.checked_at else "",
-                row.confidence,
-                row.evidence,
-            ]
-        )
-    return Response(content="\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": "attachment; filename=jobscout-applications.csv"})
+    content = await asyncio.to_thread(export_applications, rows)
+    return Response(content=content, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": "attachment; filename=jobscout-applications.csv"})
 
 
 @router.post(

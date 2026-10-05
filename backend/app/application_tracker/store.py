@@ -26,6 +26,18 @@ TERMINAL_STATUSES = {
 }
 
 
+class StaleCheckError(ValueError):
+    """The application changed after a refresh read its input."""
+
+
+class ClosingConnection(sqlite3.Connection):
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
+
 class ImportSummary(BaseModel):
     inserted: int
     updated: int
@@ -36,6 +48,7 @@ class StoredApplication(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    revision: int = 0
     company: str
     role: str
     url: str
@@ -149,7 +162,7 @@ class ApplicationTrackerStore:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=5)
+        connection = sqlite3.connect(self.path, timeout=5, factory=ClosingConnection)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
@@ -211,6 +224,7 @@ class ApplicationTrackerStore:
             )
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(applications)")}
             for name, declaration in (
+                ("revision", "INTEGER NOT NULL DEFAULT 0"),
                 ("stage", "TEXT NOT NULL DEFAULT ''"),
                 ("stage_manual", "INTEGER NOT NULL DEFAULT 0"),
                 ("role_confirmed", "INTEGER NOT NULL DEFAULT 1"),
@@ -389,10 +403,17 @@ class ApplicationTrackerStore:
         user_id = self._validated_user_id(user_id)
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT id FROM jobscout_opportunities WHERE user_id = ? ORDER BY updated_at DESC, id DESC",
+                "SELECT * FROM jobscout_opportunities WHERE user_id = ? ORDER BY updated_at DESC, id DESC",
                 (user_id,),
             ).fetchall()
-        return [opportunity for row in rows if (opportunity := self.get_opportunity(user_id, row["id"])) is not None]
+            threads = connection.execute("SELECT opportunity_id, mode, thread_id FROM jobscout_opportunity_threads WHERE user_id = ? ORDER BY linked_at DESC, rowid DESC", (user_id,)).fetchall()
+            applications = connection.execute("SELECT opportunity_id, application_id FROM jobscout_opportunity_applications WHERE user_id = ? ORDER BY application_id", (user_id,)).fetchall()
+        thread_groups, application_groups = {}, {}
+        for item in threads:
+            thread_groups.setdefault(item["opportunity_id"], []).append(item)
+        for item in applications:
+            application_groups.setdefault(item["opportunity_id"], []).append(item)
+        return [self._opportunity_from_rows(row, thread_groups.get(row["id"], []), application_groups.get(row["id"], [])) for row in rows]
 
     def get_opportunity(self, user_id: str, opportunity_id: int) -> StoredOpportunity | None:
         user_id = self._validated_user_id(user_id)
@@ -411,6 +432,10 @@ class ApplicationTrackerStore:
                 "SELECT application_id FROM jobscout_opportunity_applications WHERE user_id = ? AND opportunity_id = ? ORDER BY application_id",
                 (user_id, opportunity_id),
             ).fetchall()
+        return self._opportunity_from_rows(row, threads, applications)
+
+    @staticmethod
+    def _opportunity_from_rows(row, threads, applications) -> StoredOpportunity:
         latest_threads = {item["mode"]: item["thread_id"] for item in reversed(threads)}
         return StoredOpportunity(
             id=row["id"],
@@ -532,7 +557,7 @@ class ApplicationTrackerStore:
         updates["updated_at"] = datetime.now(UTC).isoformat()
         with self._connect() as connection:
             assignments = ", ".join(f"{key} = ?" for key in updates)
-            cursor = connection.execute(f"UPDATE applications SET {assignments} WHERE id = ? AND user_id = ?", (*updates.values(), application_id, user_id))
+            cursor = connection.execute(f"UPDATE applications SET {assignments}, revision = revision + 1 WHERE id = ? AND user_id = ?", (*updates.values(), application_id, user_id))
             if not cursor.rowcount:
                 return None
         return self.get_application(user_id, application_id)
@@ -585,7 +610,7 @@ class ApplicationTrackerStore:
                         UPDATE applications
                         SET company = ?, role = ?, applied_at = COALESCE(?, applied_at),
                             applied_at_evidence = CASE WHEN ? IS NOT NULL THEN '' ELSE applied_at_evidence END,
-                            notes = ?, updated_at = ?
+                            notes = ?, updated_at = ?, revision = revision + 1
                         WHERE id = ? AND user_id = ?
                         """,
                         (
@@ -631,9 +656,13 @@ class ApplicationTrackerStore:
         user_id: str,
         application_id: int,
         record: StatusRecord,
+        *,
+        expected_revision: int | None = None,
     ) -> StoredApplication:
         user_id = self._validated_user_id(user_id)
         with self._connect() as connection:
+            # Serialize the read/validate/write transaction, including notifications.
+            connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 "SELECT * FROM applications WHERE user_id = ? AND id = ?",
                 (user_id, application_id),
@@ -641,7 +670,13 @@ class ApplicationTrackerStore:
             if row is None:
                 raise KeyError(f"Application {application_id} was not found")
             if row["url"] != record.url:
-                raise ValueError("Check result URL does not match the stored application")
+                raise StaleCheckError("Check result URL does not match the stored application")
+            if (row["company"], row["role"]) != (record.company, record.role):
+                raise StaleCheckError("Check result identity does not match the stored application")
+            if expected_revision is not None and row["revision"] != expected_revision:
+                raise StaleCheckError("Application changed during refresh")
+            if row["checked_at"] and record.checked_at <= self._parse_datetime(row["checked_at"]):
+                raise StaleCheckError("A newer or equal check is already stored")
 
             successful_check = connection.execute(
                 """
@@ -715,7 +750,7 @@ class ApplicationTrackerStore:
                 SET status = ?, stage = ?, role = ?, role_confirmed = ?, raw_status = ?, confidence = ?, evidence = ?,
                     applied_at = ?, applied_at_evidence = ?,
                     checked_at = ?, changed_at = ?, check_result = ?,
-                    previous_status = ?, last_check_changed = ?, updated_at = ?
+                    previous_status = ?, last_check_changed = ?, updated_at = ?, revision = revision + 1
                 WHERE id = ? AND user_id = ?
                 """,
                 (
@@ -801,9 +836,11 @@ class ApplicationTrackerStore:
                     else:
                         child_id = existing["id"]
                         previous_child = connection.execute(
-                            "SELECT status, changed_at, applied_at, applied_at_evidence FROM applications WHERE id = ? AND user_id = ?",
+                            "SELECT status, changed_at, checked_at, applied_at, applied_at_evidence FROM applications WHERE id = ? AND user_id = ?",
                             (existing["id"], user_id),
                         ).fetchone()
+                        if previous_child["checked_at"] and record.checked_at <= self._parse_datetime(previous_child["checked_at"]):
+                            continue
                         child_old_status = ApplicationStatus(previous_child["status"])
                         child_changed = child_old_status is not item.status
                         child_changed_at = record.checked_at if child_changed else (self._parse_datetime(previous_child["changed_at"]) or record.checked_at)
@@ -832,7 +869,7 @@ class ApplicationTrackerStore:
                                 applied_at = ?, applied_at_evidence = ?,
                                 changed_at = ?, check_result = ?,
                                 previous_status = CASE WHEN ? THEN ? ELSE previous_status END,
-                                last_check_changed = ?, updated_at = ?
+                                last_check_changed = ?, updated_at = ?, revision = revision + 1
                             WHERE id = ? AND user_id = ?
                             """,
                             (
@@ -890,6 +927,7 @@ class ApplicationTrackerStore:
     def _application_from_row(cls, row: sqlite3.Row) -> StoredApplication:
         return StoredApplication(
             id=row["id"],
+            revision=row["revision"],
             company=row["company"],
             role=row["role"],
             url=row["url"],

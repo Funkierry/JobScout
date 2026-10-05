@@ -104,6 +104,11 @@ JobScout source checks live in `app/jobscout/`. Enable `app.jobscout.middleware:
 
 Stage 3: `app/jobscout/entry_graph.py` gates model/tool assembly; anchors are server-owned checkpoint state. Base registers only read_file. Set `JOBSCOUT_ENFORCE_THREAD_BINDING=1` for strict binding. See `docs/jobscout/entry-routing.md`.
 
+`app/jobscout/budget.py` shares provider usage across research children, and across
+tracker extraction/planning per check. Place budget middleware inside the evidence
+renderer. Missing usage stops future calls; in-flight responses can overshoot.
+Keep fake-graph coverage offline; this is not an account billing cap.
+
 ### Backend Benchmarks
 
 `scripts/benchmark/context_snapshot/`: explicit `run-live` needs provider env

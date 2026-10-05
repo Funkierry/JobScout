@@ -1,14 +1,29 @@
 name: JobScout deployment
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'backend/app/**'
+      - 'backend/uv.lock'
+      - 'backend/pyproject.toml'
+      - 'backend/Dockerfile'
+      - 'backend/scripts/jobscout_container.py'
+      - 'scripts/jobscout*.py'
+      - 'jobscout-web/**'
+      - 'deploy/jobscout/**'
+      - 'docker/**'
+      - '.github/workflows/jobscout-deploy.yml'
   push:
-    branches: [main, jobscout/deployment-readme]
+    branches: [main]
     paths:
       - '.github/workflows/jobscout-deploy.yml'
       - 'deploy/jobscout/**'
       - 'docker/docker-compose.jobscout.yaml'
       - 'docker/nginx/jobscout.conf'
       - 'backend/Dockerfile'
+      - 'backend/app/**'
+      - 'backend/uv.lock'
+      - 'backend/pyproject.toml'
       - 'backend/scripts/jobscout_container.py'
       - 'scripts/jobscout*.py'
       - 'jobscout-web/**'
@@ -59,6 +74,25 @@ jobs:
           assert status['needs_setup'] is False
           assert urllib.request.urlopen('http://127.0.0.1:6080/vnc.html').status == 200
           print('Administrator survived compose down/up')
+          PY
+      - name: Backup and restore into a fresh volume
+        run: |
+          python scripts/jobscout.py backup
+          python scripts/jobscout.py down
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p = Path('.jobscout/.env')
+          p.write_text(p.read_text().replace('JOBSCOUT_DATA_VOLUME=jobscout_jobscout-data', 'JOBSCOUT_DATA_VOLUME=jobscout-restored-data'))
+          archive = next(Path('.jobscout/backups').glob('*.tar.gz'))
+          subprocess.run(['python', 'scripts/jobscout.py', 'restore', '--archive', str(archive)], check=True)
+          PY
+          python scripts/jobscout.py up
+          python - <<'PY'
+          import json, urllib.request
+          status = json.load(urllib.request.urlopen('http://127.0.0.1:2026/api/v1/auth/setup-status'))
+          assert status['needs_setup'] is False
+          print('Administrator restored into a fresh data volume')
           PY
       - name: Service diagnostics
         if: failure()

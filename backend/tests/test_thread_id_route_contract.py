@@ -43,7 +43,7 @@ _ROUTE_DECORATOR_RE = re.compile(r"router\.(get|post|delete|put|patch|websocket)
 
 def _iter_route_handlers(path: Path):
     """Yield (handler_name, has_thread_id_param, annotation) for route handlers."""
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -73,6 +73,7 @@ def _collect_thread_id_routes():
         artifacts,
         browser,
         feedback,
+        jobscout,
         mcp_tasks,
         project_documents,
         runs,
@@ -89,6 +90,7 @@ def _collect_thread_id_routes():
         artifacts,
         browser,
         feedback,
+        jobscout,
         mcp_tasks,
         project_documents,
         runs,
