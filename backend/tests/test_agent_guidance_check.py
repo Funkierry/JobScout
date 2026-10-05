@@ -12,6 +12,7 @@ EXPECTED_GUIDANCE_PATHS = {
     "backend/AGENTS.md",
     "backend/tests/AGENTS.md",
     "frontend/AGENTS.md",
+    "jobscout-web/AGENTS.md",
     "backend/app/gateway/AGENTS.md",
     "backend/app/application_tracker/AGENTS.md",
     "backend/app/channels/AGENTS.md",

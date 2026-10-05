@@ -55,11 +55,10 @@ def main() -> int:
             time.sleep(0.25)
         return 0
     finally:
+        deadline = time.monotonic() + 20
         for process in reversed(children):
             if process.poll() is None:
                 process.terminate()
-        deadline = time.monotonic() + 20
-        for process in reversed(children):
             try:
                 process.wait(timeout=max(0.1, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:

@@ -95,6 +95,9 @@ def test_runtime_config_contains_no_secrets(tmp_path):
     assert '"gatewayBase": ""' in public
     assert '"capabilityCenterUrl": "/workspace/capabilities"' in public
     assert "SECRET" not in public and "API_KEY" not in public
+    if os.name != "nt":
+        assert (tmp_path / "runtime-config.js").stat().st_mode & 0o777 == 0o644
+        assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
 
 
 def test_failed_backup_restores_gateway_and_is_not_marked_complete(tmp_path, monkeypatch):
@@ -136,6 +139,7 @@ def test_container_supervisor_stops_remaining_children_on_failure(monkeypatch):
     from scripts import jobscout_container as container
 
     monkeypatch.setenv("JOBSCOUT_BROWSER_LOGIN", "0")
+    monkeypatch.setenv("APPLICATION_TRACKER_INTERACTIVE_LOGIN", "1")
     monkeypatch.setattr(container.signal, "signal", lambda *args: None)
     monkeypatch.setattr(container, "service_commands", lambda _: [["helper"], ["gateway"]])
     children = []

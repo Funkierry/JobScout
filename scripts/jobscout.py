@@ -17,9 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DIRECTORY = ROOT / ".jobscout"
 
 
-def write_new(path: Path, text: str) -> None:
+def write_new(path: Path, text: str, mode: int = 0o600) -> None:
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
     except FileExistsError:
         return
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
@@ -53,6 +53,7 @@ def initialize(directory: Path) -> None:
             {"gatewayBase": "", "capabilityCenterUrl": "/workspace/capabilities"}
         )
         + ";\n",
+        mode=0o644,
     )
     print(
         f"Deployment files ready: {directory}\nExisting files were preserved. Set the three JOBSCOUT_MODEL values in .env, then run doctor."
@@ -130,11 +131,11 @@ def compose(
     directory: Path, arguments: list[str], **kwargs
 ) -> subprocess.CompletedProcess:
     env = dict(os.environ)
-    env["JOBSCOUT_DEPLOY_DIR"] = directory.as_posix()
     # The deployment env file is authoritative; don't inherit a different
     # checkout's model/secrets/port overrides through the host process.
     for key in read_env(directory / ".env"):
         env.pop(key, None)
+    env["JOBSCOUT_DEPLOY_DIR"] = directory.as_posix()
     return subprocess.run(
         compose_command(directory, arguments), cwd=ROOT, env=env, **kwargs
     )
