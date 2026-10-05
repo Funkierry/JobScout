@@ -53,7 +53,8 @@ def main():
     assert status["needs_setup"] and not status["registration_enabled"], (
         "Use a fresh disposable instance"
     )
-    email, password = "smoke@example.test", secrets.token_urlsafe(24)
+    # EmailStr rejects the reserved .test TLD; example.com is valid and synthetic.
+    email, password = "jobscout-smoke@example.com", secrets.token_urlsafe(24)
     user = request("/api/v1/auth/initialize", {"email": email, "password": password})
     assert user["system_role"] == "admin"
     assert request("/api/v1/auth/me")["email"] == email
@@ -61,7 +62,7 @@ def main():
     try:
         request(
             "/api/v1/auth/register",
-            {"email": "closed@example.test", "password": password},
+            {"email": "jobscout-closed@example.com", "password": password},
         )
     except HTTPError as error:
         assert error.code == 403
