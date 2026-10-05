@@ -158,10 +158,12 @@ async def run_scheduled_refresh(tracker, user_id: str, occurrence_id: str, *, ag
             if current is None or current.terminal:
                 summary["skipped"] += 1
                 continue
-            record = await service._run_agent_record(user_id, current, interactive_login=False)
-            await asyncio.to_thread(tracker.save_check, user_id, current.id, record)
+            outcome = await service.refresh_one(user_id, current.id, interactive_login=False)
+            if outcome.skipped:
+                summary["skipped"] += 1
+                continue
             summary["checked"] += 1
-            summary["failed"] += record.check_result is not CheckResult.SUCCESS
+            summary["failed"] += outcome.application.check_result is not CheckResult.SUCCESS
     finally:
         if agent is not None:
             await agent.aclose()

@@ -9,6 +9,11 @@ the named data volume; routine down must not remove volumes. `jobscout_smoke.py`
 creates synthetic accounts and is only for disposable loopback CI instances.
 Tests: `backend/tests/test_jobscout_deployment.py`; images: `jobscout-deploy.yml`.
 
+`jobscout_archive.py` handles volume backups/restores inside container Python 3.12.
+Restore refuses a running Gateway or nonempty volume; use a fresh named volume
+and retain the original one. Validate all archive paths before staging extraction.
+Keep traversal, nonempty-volume and archive round-trip tests offline.
+
 Optional browser dependency detection reads the top-level `tools:` sequence
 without requiring `name` to be its first mapping key. Both indented and
 indentless lists are supported; nested option names and block-scalar text

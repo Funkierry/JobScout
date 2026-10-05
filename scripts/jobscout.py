@@ -195,7 +195,7 @@ def backup(directory: Path) -> None:
     if was_running:
         compose(directory, ["stop", "gateway"], check=True)
     try:
-        code = "import sys,tarfile; t=tarfile.open(fileobj=sys.stdout.buffer,mode='w|gz'); t.add('/data',arcname='data'); t.close()"
+        code = (ROOT / "scripts/jobscout_archive.py").read_text(encoding="utf-8")
         partial = target.with_suffix(target.suffix + ".partial")
         fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as stream:
@@ -211,6 +211,7 @@ def backup(directory: Path) -> None:
                     "gateway",
                     "-c",
                     code,
+                    "backup",
                 ],
                 check=True,
                 stdout=stream,
@@ -224,12 +225,54 @@ def backup(directory: Path) -> None:
             compose(directory, ["start", "gateway"], check=True)
 
 
+def restore(directory: Path, archive: Path) -> None:
+    status = compose(
+        directory,
+        ["ps", "--status", "running", "-q", "gateway"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    if status.stdout.strip():
+        raise ValueError(
+            "Stop the deployment before restoring to a new empty data volume"
+        )
+    code = (ROOT / "scripts/jobscout_archive.py").read_text(encoding="utf-8")
+    with archive.open("rb") as stream:
+        compose(
+            directory,
+            [
+                "run",
+                "--rm",
+                "--no-deps",
+                "-T",
+                "--entrypoint",
+                "/app/backend/.venv/bin/python",
+                "gateway",
+                "-c",
+                code,
+                "restore",
+            ],
+            stdin=stream,
+            check=True,
+        )
+    print(
+        "Data restored. Run up with the original deployment configuration and secrets."
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=("init", "doctor", "up", "down", "status", "logs", "backup")
+        "command",
+        choices=("init", "doctor", "up", "down", "status", "logs", "backup", "restore"),
     )
     parser.add_argument("--directory", type=Path, default=DEFAULT_DIRECTORY)
+    parser.add_argument(
+        "--archive",
+        type=Path,
+        help="Backup .tar.gz to restore into an empty data volume",
+    )
     args = parser.parse_args()
     directory = args.directory.resolve()
     try:
@@ -262,12 +305,20 @@ def main() -> int:
         if args.command == "backup":
             backup(directory)
             return 0
+        if args.command == "restore":
+            if args.archive is None:
+                parser.error("restore requires --archive")
+            restore(directory, args.archive.resolve())
+            return 0
         arguments = {
             "down": ["down"],
             "status": ["ps"],
             "logs": ["logs", "--tail", "100", "-f"],
         }[args.command]
         return compose(directory, arguments).returncode
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     except (OSError, subprocess.SubprocessError) as exc:
         print(
             f"Deployment operation failed: {type(exc).__name__}. Check Docker and the deployment files.",

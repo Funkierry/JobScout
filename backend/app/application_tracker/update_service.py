@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, Protocol
 from urllib.parse import urlsplit
+from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from app.application_tracker.browser.models import BrowserEvent
 from app.application_tracker.models import (
@@ -19,8 +21,17 @@ from app.application_tracker.models import (
 )
 from app.application_tracker.store import (
     ApplicationTrackerStore,
+    StaleCheckError,
     StoredApplication,
 )
+
+logger = logging.getLogger(__name__)
+_REFRESH_LOCKS = WeakKeyDictionary()
+
+
+def refresh_lock(store, user_id, application_id):
+    locks = _REFRESH_LOCKS.setdefault(asyncio.get_running_loop(), WeakValueDictionary())
+    return locks.setdefault((str(store.path), user_id, application_id), asyncio.Lock())
 
 
 class TrackerAgent(Protocol):
@@ -66,6 +77,9 @@ class TrackerUpdateService:
         self,
         user_id: str,
         application_id: int,
+        *,
+        interactive_login: bool | None = None,
+        on_event: Any = None,
     ) -> RefreshOutcome:
         application = await asyncio.to_thread(
             self._store.get_application,
@@ -74,6 +88,18 @@ class TrackerUpdateService:
         )
         if application is None:
             raise ApplicationNotFoundError(f"Application {application_id} was not found")
+        return await self._refresh_application(user_id, application, interactive_login=interactive_login, on_event=on_event)
+
+    async def _refresh_application(self, user_id, application, *, interactive_login=None, on_event=None):
+        async with refresh_lock(self._store, user_id, application.id):
+            current = await asyncio.to_thread(self._store.get_application, user_id, application.id)
+            if current is None:
+                raise ApplicationNotFoundError("Application was removed during refresh")
+            if current.revision != application.revision:
+                return RefreshOutcome(application=current, skipped=True, reason="already_refreshed")
+            return await self._refresh_current(user_id, current, interactive_login=interactive_login, on_event=on_event)
+
+    async def _refresh_current(self, user_id, application, *, interactive_login, on_event):
         if application.terminal:
             return RefreshOutcome(
                 application=application,
@@ -81,13 +107,16 @@ class TrackerUpdateService:
                 reason="terminal_status",
             )
 
-        record = await self._run_agent_record(user_id, application)
-        saved = await asyncio.to_thread(
-            self._store.save_check,
-            user_id,
-            application.id,
-            record,
-        )
+        record = await self._run_agent_record(user_id, application, interactive_login=interactive_login, on_event=on_event)
+        try:
+            saved = await asyncio.to_thread(self._store.save_check, user_id, application.id, record, expected_revision=application.revision)
+        except KeyError as exc:
+            raise ApplicationNotFoundError("Application was removed during refresh") from exc
+        except StaleCheckError:
+            current = await asyncio.to_thread(self._store.get_application, user_id, application.id)
+            if current is None:
+                raise ApplicationNotFoundError("Application was removed during refresh") from None
+            return RefreshOutcome(application=current, skipped=True, reason="stale_result")
         return RefreshOutcome(application=saved)
 
     async def stream_refresh_all(self, user_id: str) -> AsyncIterator[ProgressEvent]:
@@ -147,18 +176,8 @@ class TrackerUpdateService:
         *,
         on_browser_event: Any,
     ) -> StoredApplication:
-        record = await self._run_agent_record(
-            user_id,
-            application,
-            on_event=on_browser_event,
-            interactive_login=False,
-        )
-        return await asyncio.to_thread(
-            self._store.save_check,
-            user_id,
-            application.id,
-            record,
-        )
+        outcome = await self._refresh_application(user_id, application, on_event=on_browser_event, interactive_login=False)
+        return outcome.application
 
     async def _run_agent_record(
         self,
@@ -177,7 +196,9 @@ class TrackerUpdateService:
                 on_event=on_event,
                 **({"interactive_login": interactive_login} if interactive_login is not None else {}),
             )
-        except Exception:
+        except Exception as exc:
+            # Never include page text, URLs, credentials or exception messages.
+            logger.warning("Tracker check failed: application_id=%s error_type=%s", application.id, type(exc).__name__)
             checked_at = datetime.now(UTC)
             return StatusRecord(
                 company=application.company,

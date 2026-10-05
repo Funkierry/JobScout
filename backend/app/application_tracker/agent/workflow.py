@@ -152,9 +152,14 @@ class ApplicationTrackerAgent:
         resolved_name = model_name or os.getenv("APPLICATION_TRACKER_AGENT_MODEL") or None
 
         def create_fallback():
+            from app.jobscout.budget import BudgetedModel, RunTokenBudget
+            from deerflow.config import get_app_config
             from deerflow.models import create_chat_model
 
-            model = create_chat_model(name=resolved_name, thinking_enabled=False)
+            config = get_app_config()
+            model = create_chat_model(name=resolved_name, thinking_enabled=False, app_config=config)
+            if config.token_budget.enabled:
+                model = BudgetedModel(model, RunTokenBudget(config.token_budget))
             return model, StatusExtractor.from_chat_model(model)
 
         return cls(

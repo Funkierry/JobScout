@@ -102,4 +102,5 @@ services:
 
 volumes:
   jobscout-data:
+    name: ${JOBSCOUT_DATA_VOLUME:-jobscout_jobscout-data}
   redis-data:

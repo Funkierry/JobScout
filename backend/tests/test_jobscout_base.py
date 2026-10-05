@@ -14,9 +14,7 @@ from app.gateway.jobscout_base import (
 
 
 def test_validate_base_url_accepts_feishu_and_rejects_lookalike_hosts() -> None:
-    assert validate_base_url("https://example.feishu.cn/base/bascn123?table=tblJobs") == (
-        "https://example.feishu.cn/base/bascn123?table=tblJobs"
-    )
+    assert validate_base_url("https://example.feishu.cn/base/bascn123?table=tblJobs") == ("https://example.feishu.cn/base/bascn123?table=tblJobs")
     assert validate_base_url("https://example.larksuite.com/wiki/wikcn123") == "https://example.larksuite.com/wiki/wikcn123"
 
     with pytest.raises(JobScoutBaseError, match="飞书"):

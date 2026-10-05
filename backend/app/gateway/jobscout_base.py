@@ -353,9 +353,7 @@ def load_job_base_context(
         raise JobScoutBaseError("该链接未解析到普通飞书 Base；暂不支持 BaseApp 页面。")
 
     requested_table_id = table_id or resolved_table_id
-    tables_payload = _payload_data(
-        invoke(["base", "+table-list", "--base-token", base_token, "--format", "json", "--as", "user"], None)
-    )
+    tables_payload = _payload_data(invoke(["base", "+table-list", "--base-token", base_token, "--format", "json", "--as", "user"], None))
     raw_tables = _find_dict_list(tables_payload, ("items", "tables", "table_list"))
     selected_table_id, table_name = _choose_table(raw_tables, requested_table_id)
 

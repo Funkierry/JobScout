@@ -168,6 +168,9 @@ async def test_adapter_hit_never_creates_binds_or_calls_model(monkeypatch, tmp_p
 
 @pytest.mark.asyncio
 async def test_unknown_adapter_status_lazily_uses_existing_grounded_extractor(monkeypatch, tmp_path):
+    from deerflow.config.app_config import AppConfig
+
+    monkeypatch.setattr("deerflow.config.get_app_config", lambda: AppConfig.model_validate({"sandbox": {"use": "fake:Sandbox"}}))
     from test_application_tracker_agent_workflow import FakeBrowser, FakeBrowserFactory
     from test_application_tracker_extractor import StubStructuredModel
 

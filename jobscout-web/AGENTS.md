@@ -17,3 +17,7 @@ All browser tests intercept requests and use synthetic data. Run `test_pure.js`,
 `test_deployment.py`, `test_ui.py`, `test_history_scroll.py`, and `test_concurrency.py`
 with the backend Playwright environment. Keep runtime-config.js in their asset
 fixtures. Live research and deployment smoke are separate, explicit operations.
+
+CSV import uses the visible button/file input and existing CSRF-aware API helper;
+keep its browser test and busy-state behavior. JobScout regression CI runs all five
+standalone test entrypoints, with every browser request intercepted.

@@ -12,6 +12,7 @@ from langgraph.types import Command
 
 from deerflow.subagents.status_contract import SUBAGENT_STATUS_VALUES, make_subagent_additional_kwargs
 
+from .budget import STOP_NOTICE
 from .evidence import FENCE, ResearchEvidence, parse_payload
 from .inputs import BASE_SNAPSHOTS, read_uploaded_resumes
 from .links import _text, collect_seen_urls, strip_unseen_links
@@ -199,6 +200,8 @@ class JobScoutLinkMiddleware(AgentMiddleware):
                     metadata["trace_submitted"] = True
                 except Exception:
                     pass
+            if message.additional_kwargs.get("jobscout_budget_stop") is True and not context.get("is_subagent"):
+                cleaned += "\n\n" + STOP_NOTICE
             messages.append(message.model_copy(update={"content": cleaned, "additional_kwargs": {"jobscout_evidence": metadata}}))
         return replace(response, result=messages, structured_response=None)
 
