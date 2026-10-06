@@ -32,8 +32,17 @@ keeping the existing conversations and tracker rows.
 
 ## Main workspace
 
-The browser client opens on the application tracker after login. Its flat visual
-style uses solid blue accents, neutral surfaces, clear type and borders. Summary
+The browser client opens on the application tracker after login. Its visual style
+uses a cool neutral surface ramp over a faint dot lattice, solid blue accents and
+a four-step elevation scale, so panels, cards and dialogs sit at readable depths
+rather than on one flat plane. Type carries the same distinction the product
+does: everything the app *read* — counts, dates, elapsed times, confidences,
+state labels — is set in monospace with fixed-width figures, against the
+proportional face used for everything the app wrote. Motion is part of the
+system too: buttons answer a press, task modes cross-fade, and the waiting state
+carries the live research phase. Everything animated is disabled under
+`prefers-reduced-motion: reduce`, and a print stylesheet strips the screen
+styling so an exported report is a clean white document. Summary
 cards count all saved applications, confirmed active processes, review-needed
 records and confirmed offers; they are calculated from current records, never
 placeholder statistics. Unknown, conflicting and failed checks remain in review.

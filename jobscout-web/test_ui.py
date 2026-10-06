@@ -93,6 +93,20 @@ def page_payload(rows, query=""):
     )
 
 
+def settle(page):
+    """Wait for any mode cross-fade to finish.
+
+    A view transition keeps both the old and the new snapshot on screen
+    while it runs, and Playwright's animations="disabled" does not reach
+    those pseudo-elements — a capture taken mid-transition shows ghosted,
+    doubled text and is worthless as a layout baseline. app.js marks the
+    document while one is in flight; this waits for that mark to clear.
+    """
+    page.wait_for_function(
+        "() => !document.documentElement.dataset.viewTransition"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--capture-only", action="store_true")
@@ -245,6 +259,7 @@ def main():
         page.goto("http://localhost:5500/", wait_until="networkidle")
         page.locator("#sidebarTrackerBtn").click()
         expect(page.locator(".tracker-row")).to_have_count(6)
+        settle(page)
         page.screenshot(
             path=str(output / f"{args.label}-desktop.png"),
             full_page=True,
@@ -297,6 +312,7 @@ def main():
             expect(page.locator("#workspaceTitle")).to_have_text("面试准备")
             expect(page.locator("#composerInput")).to_be_visible()
             expect(page.locator("#welcomeState")).not_to_contain_text("8+4")
+            settle(page)
             page.screenshot(
                 path=str(output / "after-prep.png"),
                 full_page=True,
@@ -310,6 +326,7 @@ def main():
             page.locator("#sidebarTrackerBtn").click()
         page.set_viewport_size({"width": 390, "height": 844})
         page.locator("#trackerPanel").evaluate("node => node.scrollTop = 0")
+        settle(page)
         page.screenshot(
             path=str(output / f"{args.label}-mobile.png"),
             full_page=True,
@@ -326,6 +343,7 @@ def main():
             expect(page.locator("#trackerScheduleForm")).to_be_visible()
             page.keyboard.press("Escape")
             page.locator(".tracker-row").first.scroll_into_view_if_needed()
+            settle(page)
             page.screenshot(
                 path=str(output / "after-mobile-records.png"),
                 full_page=True,
@@ -338,6 +356,7 @@ def main():
             state["failure"] = True
             page.evaluate("loadTrackerApplications()")
             expect(page.locator("#trackerError")).to_contain_text("暂时无法读取记录")
+            settle(page)
             page.screenshot(
                 path=str(output / "after-empty-error.png"),
                 full_page=True,
@@ -347,6 +366,7 @@ def main():
         page.set_viewport_size({"width": 1440, "height": 1000})
         page.reload(wait_until="networkidle")
         expect(page.locator("#authView")).to_be_visible()
+        settle(page)
         page.screenshot(
             path=str(output / f"{args.label}-login.png"),
             full_page=True,
@@ -357,6 +377,7 @@ def main():
         assert page.evaluate(
             "document.documentElement.scrollWidth <= window.innerWidth"
         )
+        settle(page)
         page.screenshot(
             path=str(output / f"{args.label}-login-mobile.png"),
             full_page=True,

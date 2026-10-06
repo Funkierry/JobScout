@@ -27,6 +27,18 @@ def measure(page):
     }""")
 
 
+def settle(page):
+    """Wait for any mode cross-fade to finish before capturing.
+
+    See the same helper in test_ui.py: Playwright's animations="disabled"
+    does not reach view-transition pseudo-elements, so a capture taken
+    mid-transition is a blend of two frames.
+    """
+    page.wait_for_function(
+        "() => !document.documentElement.dataset.viewTransition"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline-ref")
@@ -248,6 +260,7 @@ def main():
         state["page_failure"] = False
 
         page.set_viewport_size({"width": 1440, "height": 1000})
+        settle(page)
         page.screenshot(path=str(output / "after-desktop.png"), animations="disabled")
         wrap = page.locator("#trackerTableWrap")
         heading_top = page.locator(".tracker-table th").first.bounding_box()["y"]
@@ -305,6 +318,7 @@ def main():
         expect(page.locator("#threadDeleteName")).to_have_text(title)
         expect(page.locator("#threadDeleteName img")).to_have_count(0)
         expect(page.locator("#threadDeleteCancel")).to_be_focused()
+        settle(page)
         page.screenshot(path=str(output / "delete-dialog.png"), animations="disabled")
         page.locator("#threadDeleteCancel").click()
         assert state["delete_calls"] == 0
@@ -339,6 +353,7 @@ def main():
         page.locator("#sidebarTrackerBtn").click()
         page.set_viewport_size({"width": 390, "height": 844})
         expect(page.locator(".tracker-row")).to_have_count(50)
+        settle(page)
         page.screenshot(path=str(output / "after-mobile.png"), animations="disabled")
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         assert wrap.evaluate("node => getComputedStyle(node).overflowY") == "visible"

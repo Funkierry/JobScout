@@ -252,6 +252,13 @@ function setChatStatus(text) {
   chatStatusText = text;
   if (currentMode !== "tracker" && $("chatStatus")) $("chatStatus").textContent = text;
   if (chatJob && $("chatTaskText")) $("chatTaskText").textContent = text || "AI 正在处理";
+  // A prep run can take well over a minute. The header line carrying the
+  // phase is hidden below 980px, so the same text is mirrored into the
+  // waiting bubble, which is always on screen.
+  const phase = $("thinkingPhase");
+  if (phase) phase.textContent = text || "";
+  const live = document.querySelector(".live-status");
+  if (live) live.dataset.live = chatJob ? "busy" : "idle";
 }
 
 function jobIsCurrent(job) { return !job || job.session === viewSession; }
@@ -687,9 +694,62 @@ function resetChat() {
   renderWelcomeState();
 }
 
+/** True when the user has asked the OS to limit animation. Checked at call
+ *  time rather than cached, so flipping the system setting takes effect
+ *  without a reload. */
+function prefersReducedMotion() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+}
+
+/** Run a DOM update as a cross-fade where the browser supports it, and as a
+ *  plain synchronous update everywhere else.
+ *
+ *  Two constraints shape this: the callback must stay synchronous, because
+ *  startViewTransition freezes rendering until it returns, and callers must
+ *  not depend on the update having happened by the time this returns —
+ *  startViewTransition invokes the callback a frame later, after it has
+ *  snapshotted the old state. */
+function withViewTransition(update) {
+  if (typeof document.startViewTransition !== "function" || prefersReducedMotion() || document.hidden) {
+    update();
+    return;
+  }
+  let transition;
+  try {
+    transition = document.startViewTransition(update);
+  } catch (_) {
+    update(); // Unsupported state; the DOM change still has to happen.
+    return;
+  }
+  // Marks the document while the cross-fade is on screen. Screenshot-based
+  // checks wait for this to clear, because a capture taken mid-transition
+  // shows both snapshots blended and is useless as a layout baseline.
+  document.documentElement.dataset.viewTransition = "active";
+  const settle = () => { delete document.documentElement.dataset.viewTransition; };
+  // Switching mode twice in quick succession makes the browser abandon the
+  // first transition and reject its `ready` promise. Nothing awaits these,
+  // so without a handler the skip surfaces as an uncaught rejection
+  // ("Transition was skipped") in the console. The visual outcome of a skip
+  // is the instant swap, which is an acceptable result here.
+  transition?.ready?.catch(() => {});
+  transition?.updateCallbackDone?.catch(() => {});
+  transition?.finished?.then(settle, settle);
+}
+
 function setMode(mode, { restoreThread = true } = {}) {
   if (composerBusy && chatJob && mode !== "tracker" && mode !== chatJob.mode) return;
   currentMode = ["match", "tracker"].includes(mode) ? mode : "prep";
+  // The whole update runs inside the transition so the original statement
+  // order is preserved. restoreOpportunityThread's request does not stall
+  // the frozen frame because applyMode deliberately does not return its
+  // promise — startViewTransition only waits on the callback's return value.
+  withViewTransition(() => applyMode({ restoreThread }));
+}
+
+/** The body of setMode. Reads `currentMode` and rewrites everything that
+ *  depends on it, synchronously, so it is safe to run inside a view
+ *  transition callback. */
+function applyMode({ restoreThread }) {
   $("prepModeBtn")?.classList.toggle("active", currentMode === "prep");
   $("matchModeBtn")?.classList.toggle("active", currentMode === "match");
   $("trackerModeBtn")?.classList.toggle("active", currentMode === "tracker");
@@ -1453,9 +1513,27 @@ function setupSidebarShell() {
   });
 }
 
-function scrollChatToBottom() {
+/** Distance from the bottom, in px, still treated as "the user is following
+ *  along". Roughly one line of report body text. */
+const CHAT_FOLLOW_SLACK = 72;
+
+/** Scroll the transcript to the newest content.
+ *
+ *  Only follows when the user was already at the bottom: during a long run
+ *  they may have scrolled up to re-read something, and yanking them back
+ *  on every appended message made the transcript impossible to read.
+ *  `force` is for the cases where the newest content is the whole point —
+ *  sending a message, or restoring a thread. */
+function scrollChatToBottom({ force = false } = {}) {
   const el = $("chatMessages");
-  el.scrollTop = el.scrollHeight;
+  if (!el) return;
+  const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+  if (!force && distance > CHAT_FOLLOW_SLACK) return;
+  // Smooth is requested per call rather than through CSS scroll-behavior:
+  // that property made every append restart the easing from the new
+  // position, which is what produced the stuttering jump.
+  const behavior = prefersReducedMotion() || distance > el.clientHeight ? "auto" : "smooth";
+  el.scrollTo({ top: el.scrollHeight, behavior });
 }
 
 /** Render a chat bubble. `text` is treated as inline-markdown (bold/links),
@@ -1469,7 +1547,7 @@ function addChatBubble(role, text) {
   bubble.innerHTML = inlineMd(text).replace(/\n/g, "<br/>");
   wrap.appendChild(bubble);
   $("chatMessages").appendChild(wrap);
-  scrollChatToBottom();
+  scrollChatToBottom({ force: role === "user" });
   return bubble;
 }
 
@@ -1479,8 +1557,15 @@ function showThinking() {
   const wrap = document.createElement("div");
   wrap.className = "bubble-row assistant";
   wrap.id = "thinkingBubbleRow";
-  wrap.innerHTML = '<div class="bubble assistant thinking"><span></span><span></span><span></span></div>';
+  // The phase line is filled by setChatStatus, which the chat timer calls
+  // every second with the current tool label and elapsed time. It starts
+  // empty so the bubble is never wider than its dots before the first tick.
+  wrap.innerHTML = '<div class="bubble assistant thinking">'
+    + '<span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>'
+    + '<span class="thinking-phase" id="thinkingPhase"></span>'
+    + '</div>';
   $("chatMessages").appendChild(wrap);
+  if ($("thinkingPhase")) $("thinkingPhase").textContent = chatStatusText || "";
   scrollChatToBottom();
 }
 function hideThinking() { $("thinkingBubbleRow")?.remove(); }
@@ -2061,7 +2146,12 @@ function renderReport(markdown) {
   }
 
   $("chatMessages").appendChild(wrap);
-  scrollChatToBottom();
+  const container = $("chatMessages");
+  if (container && container.scrollHeight - container.scrollTop - container.clientHeight > CHAT_FOLLOW_SLACK) {
+    wrap.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+  } else {
+    scrollChatToBottom();
+  }
 }
 
 function wireNewChatButton() {
