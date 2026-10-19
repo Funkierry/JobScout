@@ -4,7 +4,7 @@
 
 JobScout 是基于 [DeerFlow](README_DEERFLOW.md) 二次开发的 AI 求职应用。它把招聘官网的投递状态、目标岗位、面试准备和飞书岗位库连接起来：先看进展，再核对原文，最后带着岗位上下文准备下一轮。
 
-[快速部署](#快速部署) · [功能示例](#一次具体的使用过程) · [架构与个人贡献](#我的贡献) · [部署说明](docs/jobscout/deployment.md) · [实际评测](docs/jobscout/metrics.md)
+[快速部署](#快速部署) · [功能示例](#一次具体的使用过程) · [产品需求文档](#产品需求文档) · [架构与个人贡献](#我的贡献) · [部署说明](docs/jobscout/deployment.md) · [实际评测](docs/jobscout/metrics.md)
 
 ![JobScout 投递工作台：概览、环节筛选、状态变化与原文证据；画面使用合成数据](docs/jobscout/tracker-workspace.png)
 
@@ -45,6 +45,18 @@ JobScout 是基于 [DeerFlow](README_DEERFLOW.md) 二次开发的 AI 求职应�
 **刷新和聊天可以同时进行。** 两项任务各有状态与停止按钮；刷新完成后收到通知，你可以继续当前对话，也可以点击“查看结果”。桌面表格支持固定表头和独立滚动，窄屏改用卡片；历史对话支持搜索与确认后删除。
 
 **状态有依据，未知也有位置。** 优先读取同站 JSON 与页面正文，已适配飞书/字节同结构、腾讯和小红书的部分 ATS 返回。适配范围是经过回放验证的具体结构，不是所有招聘网站。宽泛进度保留原话，投递日期需要明确原文，缺失或冲突项留待核对。
+
+## 产品需求文档
+
+[阅读 PRD V1.0](docs/jobscout/prd/JobScout_PRD_V1.0.md)（中文评审稿，2026-10-19）。文档共 13 个页面，覆盖产品目标与优先级、主流程、投递工作台、证据与状态、AI 面试准备、岗位匹配、并发任务、邮件与定时通知、数据质量、指标验收及里程碑。
+
+| 使用方式 | 文件 |
+|---|---|
+| 在 GitHub 直接阅读 | [Markdown 阅读版](docs/jobscout/prd/JobScout_PRD_V1.0.md) |
+| 在 Axure RP 11 中继续编辑 | [Axure 源文件（.rp）](docs/jobscout/prd/JobScout_PRD_V1.0.rp) |
+| 下载后用浏览器阅读或打印 | [HTML 阅读版](docs/jobscout/prd/JobScout_PRD_V1.0.html) |
+
+三个版本使用同一份正文；HTML 为独立阅读版，并非 Axure 自动导出。PRD 以提交 `72db3012` 为基线，明确区分“现有”“建议”和“待验证”，不将需求、验收门槛或开发快照结果表述为已完成的业务验收。
 
 ## 快速部署
 
@@ -203,6 +215,7 @@ Linux/macOS 将 Python 路径替换为 `backend/.venv/bin/python`，或在 backe
 
 | 想了解什么 | 文档 |
 |---|---|
+| 产品目标、需求范围、业务规则和验收标准 | [PRD V1.0](docs/jobscout/prd/JobScout_PRD_V1.0.md) · [Axure 源文件](docs/jobscout/prd/JobScout_PRD_V1.0.rp) |
 | 如何部署、升级、备份和登录招聘网站 | [部署指南](docs/jobscout/deployment.md) |
 | 工作台如何操作、目标岗位如何联动 | [页面使用说明](jobscout-web/README.md) |
 | 状态来源、置信度、并发和取消规则 | [追踪策略](docs/jobscout/tracker-stability.md) |
