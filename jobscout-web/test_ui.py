@@ -7,6 +7,7 @@ Screenshots contain synthetic data only and stay under ignored local_eval/.
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
@@ -154,14 +155,15 @@ def comparison_fixture():
         }
         for r in records
     ]
-    excluded = []
+    excluded, audit = [], Counter()
     matches = score_matches(
         candidates,
         records,
         {"fixture.md": "本科学历。熟悉 Python。了解 Python。"},
         excluded=excluded,
+        audit=audit,
     )
-    return render_matches(matches, SimpleNamespace(records=records, base_bounds={}), excluded=excluded)
+    return render_matches(matches, SimpleNamespace(records=records, base_bounds={}), excluded=excluded, rejection_counts=audit)
 
 
 def main():
