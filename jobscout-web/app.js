@@ -4,7 +4,7 @@
 
 const {
   resolveDeploymentConfig, isTerminalTrackerStatus, trackerDisplayRow,
-  trackerRowPresentation, trackerSummary, trackerStageWaitText, trackerStageLabel,
+  trackerRowPresentation, trackerSummary, trackerStageWaitText, trackerStageLabel, trackerEvidenceLabel,
   trackerStageFilterOptions, filterTrackerRows, parseSseFrames, jobScoutRunContext,
   guardedMessageText, contentToText, extractLastVisibleAiText, looksLikeReport,
   sanitizeJobScoutReportMarkdown, normalizeReportMarkdownForRender,
@@ -888,7 +888,7 @@ function showTrackerResult(row, message = "刷新完成") {
   setText("trackerResultApplied", row.applied_at ? `${row.applied_at}${row.applied_at_evidence ? "" : "（历史日期，官网未核实）"}` : "官网未识别");
   setText("trackerResultWait", trackerStageWaitText(row));
   setText("trackerResultRaw", row.raw_status);
-  setText("trackerResultConfidence", row.checked_at ? `${Math.round(Number(row.confidence) * 100)}%${Number(row.confidence) < 0.7 ? " · 需确认" : ""}` : "尚未检查");
+  setText("trackerResultConfidence", trackerEvidenceLabel(row));
   setText("trackerResultEvidence", row.evidence);
   const source = $("trackerResultSource");
   if (source) source.href = row.url;
@@ -900,8 +900,8 @@ function showTrackerResult(row, message = "刷新完成") {
 function showTrackerDetails(row) {
   showTrackerResult(row);
   $("trackerResultTitle").textContent = "官网识别详情";
-  $("trackerResultMessage").textContent = Number(row.confidence) < 0.7 && row.checked_at
-    ? "本次识别置信度较低，请核对官网页面。下方保留最近一次检查的原文。"
+  $("trackerResultMessage").textContent = trackerRowPresentation(row).needsReview && row.checked_at
+    ? "具体阶段或依据仍需核对。下方保留最近一次检查的原文；原文可核对不代表判断一定正确。"
     : "这里显示最近一次检查保存的页面原文和识别结果；请以官网页面为准。";
   if (row.source_summary) {
     const source = row.source_summary;
@@ -1043,7 +1043,7 @@ function renderTrackerRows() {
     statusButton.addEventListener("click", () => showTrackerDetails(storedRow));
     statusCell.append(statusButton);
     statusCell.append(trackerElement("small", row.source_summary?.conflict ? "tracker-review-label" : "tracker-raw", row.source_summary?.conflict ? "官网 / 邮件冲突 · 待核对" : row.source_summary?.source === "email" ? "来源：招聘邮件" : "来源：官网"));
-    if (row.checked_at) statusCell.append(trackerElement("small", presentation.needsReview ? "tracker-review-label" : "tracker-raw", `${Math.round(Number(row.confidence) * 100)}%${presentation.needsReview ? " · 需确认" : " 置信度"}`));
+    if (row.checked_at) statusCell.append(trackerElement("small", presentation.needsReview ? "tracker-review-label" : "tracker-raw", trackerEvidenceLabel(storedRow)));
     if (row.evidence) {
       const evidence = trackerElement("small", "tracker-raw", row.evidence);
       statusCell.append(evidence);

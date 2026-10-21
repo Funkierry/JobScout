@@ -64,7 +64,7 @@ def test_jobscout_v2_evidence_and_score_protocol_in_all_three_tasks():
     content = JOBSCOUT_SKILL_FILE.read_text(encoding="utf-8")
     for label in "ABC":
         assert f"任务 {label} 还必须输出上述 jobscout_evidence JSON" in content
-    for field in ("published_at_quote", "jobscout_report", "jobscout_match", "resume_quote", "resume_file"):
+    for field in ("published_at_quote", "jobscout_report", "jobscout_match", "resume_quote", "resume_file", "requirement_field", "requirement_quote", "matched_term"):
         assert field in content
     assert "每个得分项必须附简历原文" in content
     assert "不回退原始 Markdown" in content

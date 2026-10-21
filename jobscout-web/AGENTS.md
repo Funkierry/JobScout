@@ -64,3 +64,11 @@ batches must not reuse a historical row. Keep this in test_concurrency.py.
 CSV import uses the visible button/file input and existing CSRF-aware API helper;
 keep its browser test and busy-state behavior. JobScout regression CI runs all five
 standalone test entrypoints, with every browser request intercepted.
+
+Generic progress (`进行中·具体阶段未知`) belongs in review counts/filters, never
+asserts résumé screening, and has no inferred stage duration. Keep manual stage
+behavior and server/client count parity. `trackerEvidenceLabel` replaces numeric
+confidence percentages for portal and mail displays. Matching history, live
+rendering, print and download additionally require the server's
+`match_contract_version=1`; older reports prompt regeneration. Preserve explicit
+zero-recommendation results and distinguish evidence scores from probabilities.

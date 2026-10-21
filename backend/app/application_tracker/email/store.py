@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS jobscout_mail_events (
 CREATE INDEX IF NOT EXISTS idx_mail_owner_app ON jobscout_mail_events(user_id, application_id, received_at);
 """
 
-SPECIFICITY = {"未知": 0, "已投递": 1, "简历筛选": 1, "测评": 2, "笔试": 2, "面试（轮次待确认）": 3, "一面": 4, "二面": 4, "三面": 4, "HR面": 4, "Offer": 5, "未通过": 5, "流程终止": 5}
+SPECIFICITY = {"未知": 0, "进行中·具体阶段未知": 1, "已投递": 1, "简历筛选": 1, "测评": 2, "笔试": 2, "面试（轮次待确认）": 3, "一面": 4, "二面": 4, "三面": 4, "HR面": 4, "Offer": 5, "未通过": 5, "流程终止": 5}
 TERMINAL = {"Offer", "未通过", "流程终止"}
 
 

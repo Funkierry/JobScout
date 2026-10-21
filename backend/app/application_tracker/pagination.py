@@ -29,7 +29,11 @@ def presentation(row):
     mail = source.get("source") == "email" and not source.get("conflict")
     status = source["status"] if mail else row.status.value
     stage = source["status"] if mail and not row.stage_manual else row.stage or status
-    review = bool(source.get("conflict") or status == "未知" or (not mail and ((row.checked_at and row.confidence < 0.7) or (row.check_result and row.check_result is not CheckResult.SUCCESS))))
+    review = bool(
+        source.get("conflict")
+        or status in {ApplicationStatus.UNKNOWN.value, ApplicationStatus.IN_PROGRESS.value}
+        or (not mail and ((row.checked_at and row.confidence < 0.7) or (row.check_result and row.check_result is not CheckResult.SUCCESS)))
+    )
     if review:
         bucket = "review"
     elif status == "Offer":

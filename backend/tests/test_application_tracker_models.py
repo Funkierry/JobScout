@@ -15,6 +15,7 @@ from app.application_tracker.models import (
 def test_application_status_values_match_product_contract() -> None:
     assert [status.value for status in ApplicationStatus] == [
         "已投递",
+        "进行中·具体阶段未知",
         "简历筛选",
         "测评",
         "笔试",

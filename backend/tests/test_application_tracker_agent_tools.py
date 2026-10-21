@@ -204,7 +204,7 @@ async def test_unknown_status_rejects_nonempty_ungrounded_evidence() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_unknown_generic_progress_is_grouped_as_screening() -> None:
+async def test_agent_unknown_generic_progress_keeps_stage_unknown() -> None:
     toolbox = _toolbox(FakeBrowser(page_text="当前申请进度：进行中"))
     await toolbox.open_page()
 
@@ -217,7 +217,7 @@ async def test_agent_unknown_generic_progress_is_grouped_as_screening() -> None:
 
     assert '"updated": true' in result
     assert toolbox.record is not None
-    assert toolbox.record.status is ApplicationStatus.RESUME_SCREENING
+    assert toolbox.record.status is ApplicationStatus.IN_PROGRESS
     assert toolbox.record.confidence == 0.75
 
 

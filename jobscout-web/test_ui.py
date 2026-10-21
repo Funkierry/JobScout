@@ -13,7 +13,17 @@ from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parent
 STAMP = "2026-10-01T08:00:00+00:00"
-STAGES = ["未知", "已投递", "简历筛选", "笔试", "一面", "二面", "Offer", "未通过"]
+STAGES = [
+    "未知",
+    "已投递",
+    "进行中·具体阶段未知",
+    "简历筛选",
+    "笔试",
+    "一面",
+    "二面",
+    "Offer",
+    "未通过",
+]
 
 
 def fixtures():
@@ -65,7 +75,7 @@ def page_payload(rows, query=""):
         label = row.get("stage") or row["status"]
         counts[label] = counts.get(label, 0) + 1
         if (
-            row["status"] == "未知"
+            row["status"] in {"未知", "进行中·具体阶段未知"}
             or row.get("check_result") != "成功"
             or row.get("confidence", 1) < 0.7
         ):
@@ -102,9 +112,7 @@ def settle(page):
     doubled text and is worthless as a layout baseline. app.js marks the
     document while one is in flight; this waits for that mark to clear.
     """
-    page.wait_for_function(
-        "() => !document.documentElement.dataset.viewTransition"
-    )
+    page.wait_for_function("() => !document.documentElement.dataset.viewTransition")
 
 
 def main():
@@ -269,6 +277,49 @@ def main():
             expect(page.locator("#trackerTotalCount")).to_have_text("6")
             expect(page.locator("#trackerActiveCount")).to_have_text("4")
             expect(page.locator("#trackerReviewCount")).to_have_text("1")
+            generic = rows[3]
+            original = dict(generic)
+            generic.update(
+                status="进行中·具体阶段未知",
+                stage="进行中·具体阶段未知",
+                raw_status="进行中",
+                evidence="平台研发工程师 · 当前申请状态：进行中",
+            )
+            page.evaluate("loadTrackerApplications()")
+            expect(page.locator("#trackerActiveCount")).to_have_text("3")
+            expect(page.locator("#trackerReviewCount")).to_have_text("2")
+            page.locator(".tracker-filter-tag").filter(
+                has_text="进行中·具体阶段未知"
+            ).click()
+            expect(page.locator(".tracker-row")).to_have_count(1)
+            expect(page.locator(".tracker-row")).to_contain_text("阶段未明确，暂不计算")
+            page.locator(".tracker-status-detail").click()
+            expect(page.locator("#trackerResultConfidence")).to_have_text(
+                "已有进度原文 · 阶段未明确"
+            )
+            assert "%" not in page.locator("#trackerResultDialog").inner_text()
+            settle(page)
+            expect(page.locator("#trackerResultDialog")).to_have_css("opacity", "1")
+            page.screenshot(
+                path=str(output / "phase1-generic-detail.png"), animations="disabled"
+            )
+            page.keyboard.press("Escape")
+            page.set_viewport_size({"width": 390, "height": 844})
+            page.locator(".tracker-row").first.scroll_into_view_if_needed()
+            settle(page)
+            assert page.evaluate(
+                "document.documentElement.scrollWidth <= window.innerWidth"
+            )
+            page.screenshot(
+                path=str(output / "phase1-generic-mobile.png"),
+                full_page=True,
+                animations="disabled",
+            )
+            page.set_viewport_size({"width": 1440, "height": 1000})
+            page.locator(".tracker-filter-tag").filter(has_text="全部").click()
+            generic.update(original)
+            page.evaluate("loadTrackerApplications()")
+            expect(page.locator("#trackerActiveCount")).to_have_text("4")
             with page.expect_file_chooser() as chooser:
                 page.locator("#trackerImportBtn").click()
             chooser.value.set_files(

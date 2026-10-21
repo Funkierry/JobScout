@@ -372,10 +372,11 @@
           {
             "record_id": "rec1",
             "公司": "合成公司",
-            "岗位": "开发"
+            "岗位": "开发",
+            "要求": "Python"
           }
         ],
-        "model_output": "```jobscout_match\n{\"candidates\": [{\"record_id\": \"rec1\", \"total\": 30, \"score_items\": [{\"dimension\": \"skills\", \"points\": 30, \"resume_file\": \"resume.md\", \"resume_quote\": \"Java\"}]}]}\n```"
+        "model_output": "```jobscout_match\n{\"candidates\": [{\"record_id\": \"rec1\", \"total\": 30, \"score_items\": [{\"dimension\": \"skills\", \"points\": 30, \"resume_file\": \"resume.md\", \"resume_quote\": \"Java\", \"requirement_field\": \"要求\", \"requirement_quote\": \"Python\", \"matched_term\": \"Python\"}]}]}\n```"
       }
     }
   },
@@ -419,10 +420,11 @@
           {
             "record_id": "rec1",
             "公司": "合成公司",
-            "岗位": "开发"
+            "岗位": "开发",
+            "要求": "Python"
           }
         ],
-        "model_output": "```jobscout_match\n{\"candidates\": [{\"record_id\": \"rec1\", \"total\": 30, \"score_items\": [{\"dimension\": \"skills\", \"points\": 30, \"resume_file\": \"resume.md\", \"resume_quote\": \"Python\"}]}]}\n```"
+        "model_output": "```jobscout_match\n{\"candidates\": [{\"record_id\": \"rec1\", \"total\": 30, \"score_items\": [{\"dimension\": \"skills\", \"points\": 30, \"resume_file\": \"resume.md\", \"resume_quote\": \"Python\", \"requirement_field\": \"要求\", \"requirement_quote\": \"Python\", \"matched_term\": \"Python\"}]}]}\n```"
       }
     }
   }

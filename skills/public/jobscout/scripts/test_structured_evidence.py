@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from grade_runs import check_followup_gap, check_structured_evidence, replay_structured_report
+from grade_runs import check_base_report, check_followup_gap, check_structured_evidence, replay_structured_report
 from evaluate_guardrail_fixtures import evaluate
 
 FENCE = chr(96) * 3
@@ -71,8 +71,20 @@ class StructuredEvidenceTest(unittest.TestCase):
             {"type": "tool", "name": "read_file", "tool_call_id": "read", "content": "Python"},
         ]
         report, _ = replay_structured_report(run, "base_match")
-        self.assertIn("| 0/100 |", report)
+        self.assertIn("没有通过双侧证据校验的推荐岗位。", report)
+        self.assertNotIn("| 0/100 |", report)
         self.assertNotIn("Java", report)
+
+    def test_explicit_empty_recommendation_is_valid_but_silent_empty_or_zero_is_not(self):
+        run = {"structured_evidence": {"server_date": "2026-10-22", "model_output": block("jobscout_match", {"candidates": []})}}
+        run["output"], _ = replay_structured_report(run, "base_match")
+        run["tool_calls"] = [{"name": "read_file", "status": "success"}]
+        self.assertTrue(all(gate.status == "pass" for gate in check_base_report(run, {})))
+        empty = run["output"]
+        run["output"] = empty.replace("没有通过双侧证据校验的推荐岗位。", "")
+        self.assertTrue(any(gate.status == "fail" for gate in check_base_report(run, {})))
+        run["output"] = empty.replace("没有通过双侧证据校验的推荐岗位。", "| 排名 | 依据分 | 公司 / 岗位 | 依据 | 差距 | 动作 | ID |\n|---|---|---|---|---|---|---|\n| 1 | 0/100 | 合成 | 无 | 无 | 复核 | rec1 |")
+        self.assertTrue(any(gate.gate_id == "base_scores_in_range" and gate.status == "fail" for gate in check_base_report(run, {})))
 
 
 if __name__ == "__main__":

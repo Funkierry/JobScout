@@ -211,9 +211,13 @@ async def test_actual_base_graph_only_reads_authorized_resume_and_scores(monkeyp
             return self
 
     config = AppConfig.model_validate({"models": [{"name": "fixture", "model": "fixture", "use": "fake:Model"}], "sandbox": {"use": "fake:Sandbox"}})
-    ref = BASE_SNAPSHOTS.put("owner", "thread", [{"record_id": "rec1", "公司": "示例公司", "岗位名称": "后端开发"}])
+    ref = BASE_SNAPSHOTS.put("owner", "thread", [{"record_id": "rec1", "公司": "示例公司", "岗位名称": "后端开发", "要求": "熟悉 Java"}])
     context = {"user_id": "owner", "thread_id": "thread", "run_id": "base-test", "jobscout_mode": "base_match", "jobscout_evidence_version": 2, "jobscout_base_context_ref": ref}
-    payload = {"candidates": [{"record_id": "rec1", "score_items": [{"dimension": "skills", "points": 30, "resume_file": "resume.md", "resume_quote": "熟悉 Java"}]}]}
+    payload = {
+        "candidates": [
+            {"record_id": "rec1", "score_items": [{"dimension": "skills", "points": 30, "requirement_field": "要求", "requirement_quote": "熟悉 Java", "matched_term": "Java", "resume_file": "resume.md", "resume_quote": "熟悉 Java"}]}
+        ]
+    }
     model = FakeModel(
         responses=[
             AIMessage("", tool_calls=[{"name": "read_file", "id": "read", "args": {"path": "/mnt/user-data/uploads/resume.md"}}]),

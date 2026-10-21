@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import Counter
 from dataclasses import replace
 
 from langchain.agents.middleware import AgentMiddleware
@@ -177,9 +178,10 @@ class JobScoutLinkMiddleware(AgentMiddleware):
                 counts = {"accepted_count": len(items)}
             elif session.mode == "base_match":
                 payload = parse_payload(raw, "jobscout_match")
-                matches = score_matches(payload.get("candidates") if isinstance(payload, dict) else None, session.records, session.read_resumes)
-                cleaned, removed = strip_unseen_links(render_matches(matches, session), set())
-                counts = {"accepted_count": len(matches), "zeroed_items": sum(bool(item["reason"]) for row in matches for item in row["score_items"])}
+                audit = Counter()
+                matches = score_matches(payload.get("candidates") if isinstance(payload, dict) else None, session.records, session.read_resumes, audit=audit)
+                cleaned, removed = strip_unseen_links(render_matches(matches, session, rejection_counts=audit), set())
+                counts = {"accepted_count": len(matches), "zeroed_items": audit["zeroed_items"], "match_contract_version": 1, "matching_rejected_counts": dict(audit)}
             else:
                 payload = parse_payload(raw, "jobscout_report")
                 if self.trusted_anchor is not None:

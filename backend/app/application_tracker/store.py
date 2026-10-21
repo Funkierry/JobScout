@@ -17,6 +17,7 @@ from app.application_tracker.models import (
     CheckResult,
     StatusRecord,
 )
+from app.application_tracker.status_semantics import migrate_generic_statuses
 from deerflow.config.paths import get_paths, resolve_path
 
 TERMINAL_STATUSES = {
@@ -293,6 +294,8 @@ class ApplicationTrackerStore:
                 );
                 """
             )
+
+            migrate_generic_statuses(connection)
 
     def replace_match_candidates(
         self,

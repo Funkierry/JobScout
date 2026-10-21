@@ -13,6 +13,7 @@ from app.application_tracker.observations import CapturedJsonResponse, SourceObs
 
 class ApplicationStatus(StrEnum):
     APPLIED = "已投递"
+    IN_PROGRESS = "进行中·具体阶段未知"
     RESUME_SCREENING = "简历筛选"
     ASSESSMENT = "测评"
     WRITTEN_TEST = "笔试"
@@ -93,7 +94,7 @@ class StatusExtraction(BaseModel):
 
     status: ApplicationStatus = Field(description="统一后的当前申请状态")
     raw_status: str = Field(default="", max_length=500, description="页面中的原始状态短语，必须逐字引用")
-    confidence: float = Field(ge=0, le=1, description="当前状态判断的置信度，范围 0 到 1")
+    confidence: float = Field(ge=0, le=1, description="兼容字段；最终由代码计算规则分，不是正确概率")
     evidence: str = Field(default="", max_length=1500, description="支持判断的页面原文片段，必须逐字引用")
     detected_role: str = Field(default="", max_length=300, description="当岗位待识别时，从页面读取的岗位名称")
     role_evidence: str = Field(default="", max_length=500, description="岗位名称对应的页面原文，必须逐字引用")

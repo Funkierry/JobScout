@@ -18,7 +18,6 @@ _GENERIC_ACTIVE_PHRASES = frozenset(
         "待审核",
         "待处理",
         "推进中",
-        "筛选中",
         "inprogress",
         "underreview",
         "processing",
@@ -32,7 +31,8 @@ _APPLICATION_STATUS_CONTEXT = re.compile(
     re.IGNORECASE,
 )
 _MORE_SPECIFIC_OR_TERMINAL = re.compile(
-    r"面试|笔试|测评|考试|测验|录用|终止|未通过|淘汰|拒绝|撤回|取消|关闭"
+    r"简历(?:审核|筛选|评估)|材料审核|筛选中|resume\s*review|screening"
+    r"|面试|笔试|测评|考试|测验|录用|终止|未通过|淘汰|拒绝|撤回|取消|关闭"
     r"|interview|assessment|\btest\b|written|offer|rejected|withdrawn|closed|cancelled|terminated|hired",
     re.IGNORECASE,
 )
@@ -46,12 +46,8 @@ def normalize_generic_active_status(
     evidence: str,
     confidence: float,
 ) -> tuple[ApplicationStatus, float]:
-    """Treat a grounded generic active state as screening, without inventing a later stage.
-
-    The screening category is a broad UI bucket here, not proof that résumé
-    review has started. Explicit stages and terminal signals always win.
-    """
-    if status not in {ApplicationStatus.UNKNOWN, ApplicationStatus.RESUME_SCREENING}:
+    """Preserve generic progress without asserting a specific recruitment stage."""
+    if status not in {ApplicationStatus.UNKNOWN, ApplicationStatus.RESUME_SCREENING, ApplicationStatus.IN_PROGRESS}:
         return status, confidence
     phrase = re.sub(r"[\s:：。.!！]+", "", raw_status).casefold()
     if phrase not in _GENERIC_ACTIVE_PHRASES:
@@ -61,4 +57,24 @@ def normalize_generic_active_status(
         return status, confidence
     if not _APPLICATION_STATUS_CONTEXT.search(evidence) or _MORE_SPECIFIC_OR_TERMINAL.search(evidence):
         return status, confidence
-    return ApplicationStatus.RESUME_SCREENING, min(confidence, _MAX_GENERIC_CONFIDENCE)
+    return ApplicationStatus.IN_PROGRESS, min(confidence, _MAX_GENERIC_CONFIDENCE)
+
+
+def migrate_generic_statuses(connection) -> None:
+    """Reclassify legacy current rows only; preserve manual stages and history.
+
+    This idempotent correction creates no checks or notifications. A revision
+    increment fences any in-flight pre-migration refresh. Historical observations
+    remain immutable, including their original classification and timestamps.
+    """
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(applications)")}
+    if not {"id", "status", "raw_status", "evidence", "confidence", "stage", "stage_manual", "revision"} <= columns:
+        return  # Partial legacy schemas have no evidence to reclassify safely.
+    rows = connection.execute("SELECT id,status,raw_status,evidence,confidence FROM applications WHERE status=?", (ApplicationStatus.RESUME_SCREENING.value,)).fetchall()
+    for row in rows:
+        status, score = normalize_generic_active_status(ApplicationStatus(row["status"]), raw_status=row["raw_status"], evidence=row["evidence"], confidence=row["confidence"])
+        if status is ApplicationStatus.IN_PROGRESS:
+            connection.execute(
+                "UPDATE applications SET status=?, confidence=?, stage=CASE WHEN stage_manual=0 AND stage IN ('',?) THEN ? ELSE stage END, revision=revision+1 WHERE id=? AND status=?",
+                (status.value, score, row["status"], status.value, row["id"], row["status"]),
+            )

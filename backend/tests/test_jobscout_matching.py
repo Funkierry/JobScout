@@ -1,12 +1,12 @@
 from app.jobscout.inputs import BaseSnapshotStore
 from app.jobscout.matching import score_matches
 
-RECORDS = [{"record_id": "rec1", "公司": "示例", "岗位": "开发", "要求": "Python"}, {"record_id": "rec2", "公司": "示例二", "岗位": "工程师"}]
+RECORDS = [{"record_id": "rec1", "公司": "示例", "岗位": "开发", "要求": "Python"}, {"record_id": "rec2", "公司": "示例二", "岗位": "工程师", "要求": "Python"}]
 RESUMES = {"resume.md": "使用 Python 开发服务。"}
 
 
 def item(**changes):
-    return {"dimension": "skills", "points": 30, "resume_file": "resume.md", "resume_quote": "Python 开发", **changes}
+    return {"dimension": "skills", "points": 30, "requirement_field": "要求", "requirement_quote": "Python", "matched_term": "Python", "resume_file": "resume.md", "resume_quote": "Python 开发", **changes}
 
 
 def test_nonexistent_resume_fragment_scores_zero_and_total_is_recomputed():
@@ -27,13 +27,12 @@ def test_duplicate_invalid_points_and_fabricated_records_cannot_inflate_score():
         RECORDS,
         RESUMES,
     )
-    assert [row["record_id"] for row in result] == ["rec2", "rec1"]
-    assert result[1]["total"] == 0
-    assert result[1]["record"]["公司"] == "示例"
+    assert [row["record_id"] for row in result] == ["rec2"]
+    assert result[0]["record"]["公司"] == "示例二"
 
 
 def test_no_uploaded_resume_no_points():
-    assert score_matches([{"record_id": "rec1", "score_items": [item()]}], RECORDS, {})[0]["total"] == 0
+    assert score_matches([{"record_id": "rec1", "score_items": [item()]}], RECORDS, {}) == []
 
 
 def test_server_snapshots_are_bounded_immutable_owned_and_expire():

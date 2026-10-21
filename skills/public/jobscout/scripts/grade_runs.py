@@ -285,6 +285,7 @@ def check_base_report(run: dict[str, Any], case: dict[str, Any]) -> list[Gate]:
     h1 = heading_texts(output, 1)
     h2 = heading_texts(output, 2)
     rows = markdown_table_rows(markdown_section(output, 2, "推荐岗位"))
+    explicit_empty = not rows and "没有通过双侧证据校验的推荐岗位。" in markdown_section(output, 2, "推荐岗位")
     scores_ok = True
     record_ids_ok = True
     for row in rows:
@@ -293,7 +294,7 @@ def check_base_report(run: dict[str, Any], case: dict[str, Any]) -> list[Gate]:
             record_ids_ok = False
             continue
         score_match = re.search(r"\d+(?:\.\d+)?", row[1])
-        if not score_match or not 0 <= float(score_match.group()) <= 100:
+        if not score_match or not 0 < float(score_match.group()) <= 100:
             scores_ok = False
         if not row[-1] or row[-1] in {"-", "—", "无"}:
             record_ids_ok = False
@@ -303,9 +304,9 @@ def check_base_report(run: dict[str, Any], case: dict[str, Any]) -> list[Gate]:
         gate("base_resume_read", bool(tool_calls(run, "read_file")), "读取了候选人简历", "完整 Base 匹配没有调用 read_file"),
         gate("base_title", h1 == ["简历 × 飞书岗位匹配报告"], "Base 报告标题正确", "Base 报告标题错误或不唯一"),
         gate("base_exact_sections", h2 == BASE_H2, "Base 四个二级章节准确且顺序正确", f"Base 二级章节不符合契约：{h2}"),
-        gate("base_recommendation_limit", 1 <= len(rows) <= 10, "推荐岗位数量在 1 至 10 之间", f"推荐岗位数量为 {len(rows)}"),
-        gate("base_scores_in_range", bool(rows) and scores_ok, "推荐分数均在 0 至 100 之间", "推荐表存在缺列或越界分数"),
-        gate("base_record_ids", bool(rows) and record_ids_ok, "推荐岗位均保留记录标识", "推荐岗位缺少可追溯记录标识"),
+        gate("base_recommendation_limit", explicit_empty or 1 <= len(rows) <= 10, "最多推荐 10 个岗位；空结果明确说明证据边界", f"推荐岗位数量或空结果说明无效：{len(rows)}"),
+        gate("base_scores_in_range", explicit_empty or bool(rows) and scores_ok, "推荐依据分大于 0 且不超过 100", "推荐表存在零分、缺列或越界分数"),
+        gate("base_record_ids", explicit_empty or bool(rows) and record_ids_ok, "推荐岗位均保留记录标识", "推荐岗位缺少可追溯记录标识"),
         gate("no_sensitive_values", not sensitive, "未输出手机号或身份证号", f"输出疑似敏感值：{', '.join(sensitive)}"),
     ]
 
@@ -498,9 +499,10 @@ def replay_structured_report(run: dict[str, Any], mode: str) -> tuple[str, dict]
         evidence.validate(parse_payload(child, "jobscout_evidence"))
     if mode == "base_match":
         payload = parse_payload(artifact.get("model_output"), "jobscout_match")
-        matches = score_matches(payload.get("candidates") if isinstance(payload, dict) else None, evidence.records, evidence.read_resumes)
-        report = strip_unseen_links(render_matches(matches, evidence), set())[0]
-        stats = {"accepted": len(matches), "zeroed_items": sum(bool(item["reason"]) for row in matches for item in row["score_items"])}
+        audit = Counter()
+        matches = score_matches(payload.get("candidates") if isinstance(payload, dict) else None, evidence.records, evidence.read_resumes, audit=audit)
+        report = strip_unseen_links(render_matches(matches, evidence, rejection_counts=audit), set())[0]
+        stats = {"accepted": len(matches), "zeroed_items": audit["zeroed_items"], "matching_rejected_counts": dict(audit)}
     else:
         payload = parse_payload(artifact.get("model_output"), "jobscout_report")
         evidence.validate(payload.get("evidence", []) if isinstance(payload, dict) else None)

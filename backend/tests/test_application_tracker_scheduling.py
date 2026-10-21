@@ -63,6 +63,21 @@ def test_notifications_only_for_confirmed_change_and_are_owner_scoped(tmp_path):
     assert len(store.notifications("u")) == 1
 
 
+def test_generic_progress_is_not_a_stage_change_notification(tmp_path):
+    tracker, store, rows = setup_store(tmp_path)
+    row = rows[0]
+    tracker.save_check("u", row.id, record(row, ApplicationStatus.APPLIED))
+    tracker.save_check("u", row.id, record(row, ApplicationStatus.IN_PROGRESS, now=NOW + timedelta(days=1)))
+    assert not store.notifications("u")
+    tracker.save_check("u", row.id, record(row, ApplicationStatus.FIRST_INTERVIEW, now=NOW + timedelta(days=2)))
+    notices = store.notifications("u")
+    assert len(notices) == 1 and notices[0]["new_status"] == "一面"
+    # Reinitialization must not recreate the obsolete notification trigger.
+    SchedulingStore(ApplicationTrackerStore(tracker.path))
+    tracker.save_check("u", row.id, record(row, ApplicationStatus.IN_PROGRESS, now=NOW + timedelta(days=3)))
+    assert len(store.notifications("u")) == 1
+
+
 @pytest.mark.asyncio
 async def test_scheduled_refresh_skips_terminal_and_cleans_agent_under_budget(tmp_path):
     tracker, store, rows = setup_store(tmp_path)

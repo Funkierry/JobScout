@@ -157,7 +157,7 @@ def test_model_failure_does_not_abort_the_row() -> None:
     assert result.check_result is CheckResult.FETCH_FAILED
 
 
-def test_generic_current_application_progress_is_grouped_as_screening() -> None:
+def test_generic_current_application_progress_keeps_stage_unknown() -> None:
     model = StubStructuredModel(
         StatusExtraction(
             status=ApplicationStatus.UNKNOWN,
@@ -169,7 +169,7 @@ def test_generic_current_application_progress_is_grouped_as_screening() -> None:
 
     result = StatusExtractor(model).extract(_application(), "当前申请进度：进行中")
 
-    assert result.status is ApplicationStatus.RESUME_SCREENING
+    assert result.status is ApplicationStatus.IN_PROGRESS
     assert result.raw_status == "进行中"
     assert result.evidence == "当前申请进度：进行中"
     assert result.confidence == 0.75
@@ -177,7 +177,7 @@ def test_generic_current_application_progress_is_grouped_as_screening() -> None:
     assert "更具体环节" in str(model.calls[0][0].content)
 
 
-def test_ongoing_wording_next_to_application_submission_is_grouped_as_screening() -> None:
+def test_ongoing_wording_next_to_application_submission_keeps_stage_unknown() -> None:
     model = StubStructuredModel(
         StatusExtraction(
             status=ApplicationStatus.UNKNOWN,
@@ -189,7 +189,7 @@ def test_ongoing_wording_next_to_application_submission_is_grouped_as_screening(
 
     result = StatusExtractor(model).extract(_application(), "欢迎投递示例集团-进行中")
 
-    assert result.status is ApplicationStatus.RESUME_SCREENING
+    assert result.status is ApplicationStatus.IN_PROGRESS
     assert result.raw_status == "进行中"
     assert result.evidence == "欢迎投递示例集团-进行中"
     assert result.confidence == 0.75
@@ -285,7 +285,7 @@ def test_generic_progress_is_normalized_for_each_discovered_role() -> None:
     result = StatusExtractor(model).extract(_application(), page_text)
 
     assert [item.status for item in result.discovered_applications] == [
-        ApplicationStatus.RESUME_SCREENING,
+        ApplicationStatus.IN_PROGRESS,
         ApplicationStatus.REJECTED,
     ]
     assert result.discovered_applications[0].confidence == 0.75

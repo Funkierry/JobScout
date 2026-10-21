@@ -53,7 +53,7 @@ assert.strictEqual(extractLastVisibleAiText([guardedReport], "prep"), guardedRep
 const legacyReport = { ...guardedReport, additional_kwargs: {} };
 assert(!guardedMessageText(legacyReport, "prep").includes("https://"));
 assert(guardedMessageText(legacyReport, "prep").includes("来源校验"));
-assert(guardedMessageText(legacyReport, "match").includes("来源校验"));
+assert(guardedMessageText(legacyReport, "match").includes("双侧证据校验"));
 assert(guardedMessageText({ type: "ai", content: "没有标题的编造断言" }).includes("来源校验"));
 assert(guardedMessageText({ ...guardedReport, additional_kwargs: { jobscout_links: { version: 1, mode: "interview_prep", run_id: "old", removed_count: 0 } } }).includes("来源校验"));
 assert.deepStrictEqual(jobScoutRunContext("match", "server-ref"), { jobscout_mode: "base_match", jobscout_evidence_version: 2, jobscout_base_context_ref: "server-ref" });
@@ -68,7 +68,22 @@ assert(escapedEvidenceHtml.includes("Python&#124;Spark") && !escapedEvidenceHtml
 console.log("PASS: JobScout mode and missing-guard fail-closed display");
 
 // ---- application tracker helpers ----
+const { trackerEvidenceLabel } = require("./core.js");
+const genericProgress = { status: "进行中·具体阶段未知", stage: "进行中·具体阶段未知", raw_status: "进行中", confidence: 0.75, evidence: "当前申请状态：进行中", check_result: "成功", checked_at: "2026-10-21T00:00:00Z" };
+assert.strictEqual(trackerRowPresentation(genericProgress).needsReview, true);
+assert.deepStrictEqual(trackerSummary([genericProgress]), { total: 1, active: 0, review: 1, offers: 0 });
+assert(trackerEvidenceLabel(genericProgress).includes("阶段未明确"));
+assert(!trackerEvidenceLabel(genericProgress).includes("%"));
+assert(trackerStageWaitText(genericProgress).includes("暂不计算"));
+assert(trackerEvidenceLabel({ ...genericProgress, status: "一面", confidence: 1 }).includes("原文可核对"));
+assert(trackerEvidenceLabel({ ...genericProgress, check_result: "需登录" }).includes("登录"));
+const oldMatchReport = { type: "ai", content: "# 简历 × 飞书岗位匹配报告\n100/100", additional_kwargs: { jobscout_evidence: { version: 2, mode: "base_match", run_id: "match-run", accepted_count: 1, removed_count: 0 } } };
+assert(guardedMessageText(oldMatchReport, "match").includes("重新生成"));
+assert(!guardedMessageText(oldMatchReport, "match").includes("100/100"));
+assert.strictEqual(guardedMessageText({ ...oldMatchReport, additional_kwargs: { jobscout_evidence: { ...oldMatchReport.additional_kwargs.jobscout_evidence, match_contract_version: 1 } } }, "match"), oldMatchReport.content);
 const portalFixture = { status: "已投递", stage: "已投递", evidence: "官网已收到", source_summary: { source: "email", status: "面试（轮次待确认）", evidence: "面试邀请", received_at: "2026-10-04T00:00:00Z", conflict: false } };
+assert(trackerEvidenceLabel(portalFixture).includes("邮件原文可核对"));
+assert(!trackerEvidenceLabel(portalFixture).includes("100%"));
 assert.strictEqual(trackerDisplayRow(portalFixture).status, "面试（轮次待确认）");
 assert.strictEqual(portalFixture.status, "已投递");
 assert.strictEqual(trackerStageLabel(portalFixture), "面试（轮次待确认）");

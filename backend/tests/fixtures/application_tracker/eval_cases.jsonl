@@ -10,3 +10,4 @@
 {"case_id":"rejected","company":"示例科技","role":"运维工程师","url":"https://careers.example.com/applications/010","applied_at":"2026-09-10","notes":"合成测试数据","page_text":"很遗憾，你的申请未通过本轮筛选。感谢你的关注。","expected_status":"未通过"}
 {"case_id":"terminated","company":"示例科技","role":"项目经理","url":"https://careers.example.com/applications/011","applied_at":"2026-09-11","notes":"合成测试数据","page_text":"该职位已取消，本次招聘流程已终止。","expected_status":"流程终止"}
 {"case_id":"unknown","company":"示例科技","role":"商业分析师","url":"https://careers.example.com/applications/012","applied_at":"2026-09-12","notes":"合成测试数据","page_text":"候选人中心\n感谢关注我们的招聘机会。\n页面未展示当前申请阶段。","expected_status":"未知"}
+{"case_id":"generic-progress","company":"示例科技","role":"Python工程师","url":"https://careers.example.com/applications/013","applied_at":"2026-09-12","notes":"合成测试数据","page_text":"岗位：Python工程师\n当前申请状态：进行中","expected_status":"进行中·具体阶段未知"}

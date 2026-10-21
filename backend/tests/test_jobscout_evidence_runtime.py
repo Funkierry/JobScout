@@ -70,7 +70,7 @@ def test_base_runtime_recomputes_scores_from_actual_upload_and_owned_snapshot(mo
     from app.jobscout.inputs import BaseSnapshotStore
 
     snapshots = BaseSnapshotStore()
-    ref = snapshots.put("u", "t", [{"record_id": "server-id", "公司": "真实快照", "岗位": "开发"}], has_more=True)
+    ref = snapshots.put("u", "t", [{"record_id": "server-id", "公司": "真实快照", "岗位": "开发", "要求": "Python"}], has_more=True)
     monkeypatch.setattr(module, "BASE_SNAPSHOTS", snapshots)
     monkeypatch.setattr(module, "read_uploaded_resumes", lambda *_: {"resume.md": "开发 Python"})
     rt = context(jobscout_mode="base_match", jobscout_base_context_ref=ref)
@@ -84,7 +84,7 @@ def test_base_runtime_recomputes_scores_from_actual_upload_and_owned_snapshot(mo
                 "total": 100,
                 "company": "伪造公司",
                 "score_items": [
-                    {"dimension": "skills", "points": 30, "resume_file": "resume.md", "resume_quote": "Python"},
+                    {"dimension": "skills", "points": 30, "requirement_field": "要求", "requirement_quote": "Python", "matched_term": "Python", "resume_file": "resume.md", "resume_quote": "Python"},
                     {"dimension": "projects", "points": 20, "resume_file": "resume.md", "resume_quote": "虚构经历"},
                 ],
             }
@@ -95,6 +95,7 @@ def test_base_runtime_recomputes_scores_from_actual_upload_and_owned_snapshot(mo
     assert "真实快照" in result.content and "伪造公司" not in result.content and "虚构经历" not in result.content
     assert "尚有未读分页：是" in result.content
     assert result.additional_kwargs["jobscout_evidence"]["zeroed_items"] == 4
+    assert result.additional_kwargs["jobscout_evidence"]["match_contract_version"] == 1
 
 
 def test_async_upload_snapshot_runs_outside_event_loop(monkeypatch):

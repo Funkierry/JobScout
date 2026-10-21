@@ -12,7 +12,8 @@ from app.evidence.grounding import ground_excerpt
 
 _VOCABULARY = {
     ApplicationStatus.APPLIED: r"已投递|投递成功|已提交|提交成功|已收到|申请成功|submitted|received|applied",
-    ApplicationStatus.RESUME_SCREENING: r"筛选|简历审核|材料审核|审核中|待审核|进行中|处理中|待处理|推进中|screening|review|in\s*progress|processing",
+    ApplicationStatus.RESUME_SCREENING: r"筛选|简历审核|材料审核|screening|(?:resume|cv)\s*review",
+    ApplicationStatus.IN_PROGRESS: r"进行中|处理中|待处理|推进中|(?<!简历)(?<!材料)审核中|待审核|in\s*progress|under\s*review|processing",
     ApplicationStatus.ASSESSMENT: r"测评|测验|assessment",
     ApplicationStatus.WRITTEN_TEST: r"笔试|在线考试|written\s*test|coding\s*test",
     ApplicationStatus.FIRST_INTERVIEW: r"一面|第一轮面试|首轮面试|first\s*interview|interview\s*1",

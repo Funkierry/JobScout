@@ -107,7 +107,7 @@ def main():
               const stream=new ReadableStream({start(controller){
                 fixture.finishChat=()=>{
                   const ai={type:'ai',content:fixture.report || '合成回复已完成',additional_kwargs:fixture.report
-                    ? {jobscout_evidence:{version:2,run_id:'fixture-run',mode:'base_match',accepted_count:0,removed_count:0}}
+                    ? {jobscout_evidence:{version:2,run_id:'fixture-run',mode:'base_match',match_contract_version:1,accepted_count:0,removed_count:0}}
                     : {jobscout_route:{version:3,run_id:'fixture-run',in_scope:false,missing_fields:[]}}};
                   controller.enqueue(new TextEncoder().encode('event: values\\ndata: '+JSON.stringify({messages:[ai]})+'\\n\\n'));
                   controller.close();

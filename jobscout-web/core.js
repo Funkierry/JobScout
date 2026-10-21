@@ -44,6 +44,7 @@
 
   const TERMINAL_TRACKER_STATUSES = new Set(["Offer", "未通过", "流程终止"]);
   const STOPPED_TRACKER_STATUSES = new Set(["未通过", "流程终止"]);
+  const GENERIC_PROGRESS = "进行中·具体阶段未知";
 
   function isTerminalTrackerStatus(status) {
     return TERMINAL_TRACKER_STATUSES.has(status);
@@ -72,6 +73,7 @@
     const terminal =
       Boolean(row?.terminal) || isTerminalTrackerStatus(row?.status);
     const needsReview =
+      row?.status === GENERIC_PROGRESS || Boolean(row?.source_summary?.conflict) ||
       Boolean(row?.checked_at) && Number(row?.confidence) < 0.7;
     const changed = Boolean(row?.changed && row?.previous_status);
     const stopped =
@@ -111,6 +113,7 @@
   }
 
   function trackerStageWaitText(row, now = new Date()) {
+    if (row?.status === GENERIC_PROGRESS && !row?.stage_manual) return "阶段未明确，暂不计算";
     if (!row?.status || row.status === "未知") return "阶段待确认";
     if (row.terminal || isTerminalTrackerStatus(row.status))
       return "流程已结束";
@@ -128,6 +131,17 @@
   function trackerStageLabel(row) {
     row = trackerDisplayRow(row);
     return row?.stage || row?.status || "未分类";
+  }
+
+  function trackerEvidenceLabel(storedRow) {
+    const row = trackerDisplayRow(storedRow);
+    if (row?.source_summary?.conflict) return "来源冲突 · 待核对";
+    if (row?.check_result === "需登录") return "需要登录核对";
+    if (row?.check_result && row.check_result !== "成功") return "本次检查未完成";
+    if (row?.status === GENERIC_PROGRESS) return "已有进度原文 · 阶段未明确";
+    if (!row?.checked_at) return "尚未检查";
+    if (!row?.evidence || row.status === "未知" || trackerRowPresentation(row).needsReview) return "依据不足 · 待核对";
+    return row?.source_summary?.source === "email" ? "邮件原文可核对" : "官网原文可核对";
   }
 
   function trackerStageFilterOptions(rows, stages = []) {
@@ -205,6 +219,7 @@
     if (
       stamp?.version === 2 &&
       stamp.mode === (mode === "match" ? "base_match" : "interview_prep") &&
+      (mode !== "match" || stamp.match_contract_version === 1) &&
       typeof stamp.run_id === "string" &&
       stamp.run_id &&
       Number.isInteger(stamp.accepted_count) &&
@@ -213,7 +228,9 @@
       stamp.removed_count >= 0
     )
       return text;
-    return "这份内容尚无本次运行的结构化证据与来源校验记录，暂不展示或导出。旧报告需要重新生成；新报告请先启用 JobScout 来源校验中间件。";
+    return mode === "match"
+      ? "这份匹配报告尚无当前版本的岗位与简历双侧证据校验记录，暂不展示或导出旧评分，请重新生成。"
+      : "这份内容尚无本次运行的结构化证据与来源校验记录，暂不展示或导出。旧报告需要重新生成；新报告请先启用 JobScout 来源校验中间件。";
   }
 
   function contentToText(content) {
@@ -547,6 +564,7 @@
     trackerSummary,
     trackerStageWaitText,
     trackerStageLabel,
+    trackerEvidenceLabel,
     trackerStageFilterOptions,
     filterTrackerRows,
     parseSseFrames,

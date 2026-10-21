@@ -23,9 +23,10 @@ CREATE TABLE IF NOT EXISTS jobscout_notifications (
  source TEXT NOT NULL, source_id TEXT NOT NULL, created_at TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0,
  UNIQUE(user_id,source,source_id,application_id));
 CREATE INDEX IF NOT EXISTS idx_notifications_owner ON jobscout_notifications(user_id,id);
-CREATE TRIGGER IF NOT EXISTS jobscout_portal_change_notification AFTER INSERT ON application_checks
+DROP TRIGGER IF EXISTS jobscout_portal_change_notification;
+CREATE TRIGGER IF NOT EXISTS jobscout_portal_change_notification_v2 AFTER INSERT ON application_checks
 WHEN NEW.status_changed=1 AND NEW.check_result='成功' AND NEW.old_status IS NOT NULL
- AND NEW.old_status!='未知' AND NEW.new_status!='未知' AND NEW.old_status!=NEW.new_status AND NEW.evidence!=''
+ AND NEW.old_status!='未知' AND NEW.new_status NOT IN ('未知','进行中·具体阶段未知') AND NEW.old_status!=NEW.new_status AND NEW.evidence!=''
 BEGIN
  INSERT OR IGNORE INTO jobscout_notifications(user_id,application_id,old_status,new_status,evidence,source,source_id,created_at)
  VALUES(NEW.user_id,NEW.application_id,NEW.old_status,NEW.new_status,NEW.evidence,'portal',CAST(NEW.id AS TEXT),NEW.checked_at);
