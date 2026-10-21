@@ -74,30 +74,45 @@ def years(text):
     return max((float(value) for value in matches), default=None)
 
 
-def eligibility_issue(record, resumes):
-    """Reject only explicit, directly comparable education/experience conflicts.
+def qualification_checks(record, resumes):
+    """Compare only explicit degree/experience minimums, retaining source spans.
 
-    Missing/ambiguous qualifications remain unknown and must be reviewed; age,
-    gender and other sensitive traits are never inferred or used for ranking.
+    Unknown, future or negated qualifications never establish a conflict. No
+    sensitive characteristics are inferred. These checks do not award points.
     """
-    resume = "\n".join(resumes.values())
-    actual_degree, actual_years = resume_degree(resume), years(resume)
+    actual = {"education": (None, "", ""), "experience": (None, "", "")}
+    for filename, text in resumes.items():
+        for clause in re.split(r"[。；;\n]", text):
+            if not 0 < len(clause) <= 4000 or UNCERTAIN.search(clause) or re.search(r"没有|不足|不到|\b(?:no|not|less than)\b", clause, re.I):
+                continue
+            for kind, value in (("education", degree(clause) or None), ("experience", years(clause))):
+                if value is not None and (actual[kind][0] is None or value > actual[kind][0]):
+                    actual[kind] = (value, filename, clause)
+    checks = []
     for field, value in record.items():
         if not isinstance(value, str) or NON_REQUIREMENTS.search(field):
             continue
         for clause in re.split(r"[。；;\n]", value[:20000]):
-            if OPTIONAL.search(clause) or UPPER_BOUND.search(clause):
+            if not 0 < len(clause) <= 4000 or OPTIONAL.search(clause) or UPPER_BOUND.search(clause):
                 continue
             education_field = re.search(r"学历|学位|education|degree", field, re.I)
             explicit_degree = re.search(r"(?:要求|必须|至少|最低).{0,8}(?:博士|硕士|本科|学士|专科)|(?:博士|硕士|本科|学士|专科)(?:及以上|以上)(?:学历|学位)?|requires?.{0,12}(?:doctorate|ph\.?d|master|bachelor)", clause, re.I)
             required_degree = minimum_degree(clause) if education_field or explicit_degree else 0
-            if required_degree and actual_degree and actual_degree < required_degree:
-                return "education_conflict"
             minimum_clause = re.sub(r"(\d+(?:\.\d+)?)\s*(?:-|–|—|~|～|至|到|to)\s*\d+(?:\.\d+)?", r"\1", clause, flags=re.I)
             required_years = years(minimum_clause) if re.search(r"经验|experience|要求|require", field, re.I) else None
-            if required_years is not None and actual_years is not None and actual_years < required_years:
-                return "experience_conflict"
-    return ""
+            for kind, minimum in (("education", required_degree or None), ("experience", required_years)):
+                if minimum is None:
+                    continue
+                value, filename, quote = actual[kind]
+                judgement = "unknown" if value is None else "not_met" if value < minimum else "supported"
+                checks.append(
+                    {"dimension": kind, "requirement_field": field, "requirement_quote": clause, "resume_file": filename, "resume_quote": quote, "judgement": judgement, "reason": kind + "_conflict" if judgement == "not_met" else ""}
+                )
+    return checks
+
+
+def eligibility_issue(record, resumes):
+    return next((item["reason"] for item in qualification_checks(record, resumes) if item["judgement"] == "not_met"), "")
 
 
 def contains_term(text, term):
@@ -121,6 +136,7 @@ def paired_evidence(item, record, resume_span):
     term = term.strip()
     if not contains_term(span, term) or not contains_term(resume_span, term):
         return "corresponding_term_not_found", {}
+    pair = {"requirement_field": field, "requirement_quote": span, "matched_term": term}
     # Negated or merely planned evidence is not a demonstrated match.
     if re.search(r"不(?:会|懂|熟悉|具备|了解)|尚未|未曾|没有|计划学习|希望学习|\b(?:no|not|without)\b", resume_span, re.I):
         return "unsupported_resume_claim", {}
@@ -129,5 +145,5 @@ def paired_evidence(item, record, resume_span):
     if dimension == "projects" and not re.search(r"项目|开发|搭建|设计|实现|负责|参与|建设|交付|project|built|develop|design|implement|deliver", resume_span, re.I):
         return "unsupported_project", {}
     if re.search(r"熟练|精通|proficient|expert", span, re.I) and re.search(r"了解|入门|基础|学习中|beginner|basic|learning", resume_span, re.I):
-        return "proficiency_not_supported", {}
-    return "", {"requirement_field": field, "requirement_quote": span, "matched_term": term}
+        return "proficiency_not_supported", pair
+    return "", pair

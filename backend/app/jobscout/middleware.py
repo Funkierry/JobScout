@@ -179,8 +179,9 @@ class JobScoutLinkMiddleware(AgentMiddleware):
             elif session.mode == "base_match":
                 payload = parse_payload(raw, "jobscout_match")
                 audit = Counter()
-                matches = score_matches(payload.get("candidates") if isinstance(payload, dict) else None, session.records, session.read_resumes, audit=audit)
-                cleaned, removed = strip_unseen_links(render_matches(matches, session, rejection_counts=audit), set())
+                excluded = []
+                matches = score_matches(payload.get("candidates") if isinstance(payload, dict) else None, session.records, session.read_resumes, audit=audit, excluded=excluded)
+                cleaned, removed = strip_unseen_links(render_matches(matches, session, rejection_counts=audit, excluded=excluded), set())
                 counts = {"accepted_count": len(matches), "zeroed_items": audit["zeroed_items"], "match_contract_version": 1, "matching_rejected_counts": dict(audit)}
             else:
                 payload = parse_payload(raw, "jobscout_report")

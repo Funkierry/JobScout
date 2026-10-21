@@ -1410,6 +1410,14 @@ input.tracker-inline-input:focus { border-color: var(--blue); background: var(--
 .tracker-result-dialog dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: 12px; }
 .tracker-result-dialog dd a { color: var(--blue); font-weight: 650; text-decoration: none; }
 .tracker-result-dialog dd a:hover { text-decoration: underline; }
+.tracker-recovery { margin: 0 0 16px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); }
+.tracker-recovery strong { font-size: 13px; }
+.tracker-recovery p { margin: 8px 0; font-size: 12px; color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; }
+.tracker-recovery-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.tracker-recovery .secondary-btn, .tracker-recovery .primary-btn { min-height: 36px; padding: 0 12px; }
+.tracker-recovery-form { display: grid; gap: 8px; margin-top: 12px; }
+.tracker-recovery-form label { display: grid; gap: 6px; font-size: 12px; }
+input.tracker-recovery-input { width: 100%; min-width: 0; padding: 9px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); color: var(--ink); }
 
 .tracker-progress {
   padding: 12px 14px;

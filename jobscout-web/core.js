@@ -144,6 +144,37 @@
     return row?.source_summary?.source === "email" ? "邮件原文可核对" : "官网原文可核对";
   }
 
+  function trackerIsSiteHomepage(url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.pathname === "/" && !parsed.search && !parsed.hash;
+    } catch (_) { return false; }
+  }
+
+  function trackerRecovery(row) {
+    const canRetry = Boolean(row) && !trackerRowPresentation(row).terminal;
+    let kind, title, message;
+    if (row?.source_summary?.conflict) {
+      [kind, title, message] = ["conflict", "先核对官网与邮件", "双方记录已保留。请核对岗位、日期和邮件原文，再决定采用哪条信息；不会自动覆盖冲突状态。"];
+    } else if (row?.check_result === "需登录") {
+      [kind, title, message] = ["login", "需要重新登录", "使用下方按钮发起单条检查，并在弹出的招聘网站浏览器中完成登录。登录后继续读取；不会代为投递。"];
+    } else if (row?.check_result && row.check_result !== "成功") {
+      [kind, title, message] = ["retry", "本次未能完成读取", "这不代表申请被拒绝。请先打开查询页确认是否能访问，再重试；网络或页面结构问题不能仅凭失败结果确定。"];
+    } else if (row?.status === GENERIC_PROGRESS) {
+      [kind, title, message] = ["generic", "等待明确的招聘阶段", "官网只提供宽泛进度，保留原文即可。后续出现简历筛选、笔试或面试等明确阶段时再检查，无需反复刷新。"];
+    } else if (!row?.checked_at) {
+      [kind, title, message] = ["first_check", "尚未检查", "确认链接指向本人的申请列表或详情页，再进行首次检查。"];
+    } else if (row?.status === "未知" || !row?.evidence || trackerRowPresentation(row).needsReview) {
+      [kind, title, message] = trackerIsSiteHomepage(row?.url)
+        ? ["link", "请补充个人申请页面链接", "当前链接是网站首页。进入“我的投递 / 申请记录”后复制链接，可在这里修改原记录，无需重复添加。"]
+        : ["evidence", "需要核对岗位与原文", "页面已有读取结果，但不足以确认该岗位的阶段。请核对登录状态、岗位名称和申请链接；未知不代表未通过。"];
+    } else {
+      [kind, title, message] = ["verified", "保留原文，按需跟进", "已有可核对原文。请以官网为准，出现新通知或明确变化后再检查。"];
+    }
+    if (!canRetry) message += " 当前记录已结束，不提供自动重试。";
+    return {kind, title, message, canRetry};
+  }
+
   function trackerStageFilterOptions(rows, stages = []) {
     const counts = new Map();
     for (const row of rows) {
@@ -565,6 +596,8 @@
     trackerStageWaitText,
     trackerStageLabel,
     trackerEvidenceLabel,
+    trackerRecovery,
+    trackerIsSiteHomepage,
     trackerStageFilterOptions,
     filterTrackerRows,
     parseSseFrames,

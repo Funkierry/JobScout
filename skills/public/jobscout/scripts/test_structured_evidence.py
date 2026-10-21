@@ -2,8 +2,8 @@ import json
 import unittest
 from pathlib import Path
 
-from grade_runs import check_base_report, check_followup_gap, check_structured_evidence, replay_structured_report
 from evaluate_guardrail_fixtures import evaluate
+from grade_runs import check_base_report, check_followup_gap, check_structured_evidence, replay_structured_report
 
 FENCE = chr(96) * 3
 
@@ -85,6 +85,22 @@ class StructuredEvidenceTest(unittest.TestCase):
         self.assertTrue(any(gate.status == "fail" for gate in check_base_report(run, {})))
         run["output"] = empty.replace("没有通过双侧证据校验的推荐岗位。", "| 排名 | 依据分 | 公司 / 岗位 | 依据 | 差距 | 动作 | ID |\n|---|---|---|---|---|---|---|\n| 1 | 0/100 | 合成 | 无 | 无 | 复核 | rec1 |")
         self.assertTrue(any(gate.gate_id == "base_scores_in_range" and gate.status == "fail" for gate in check_base_report(run, {})))
+
+    def test_grouped_recommendations_validate_their_own_detail_score(self):
+        run = {"structured_evidence": {"server_date": "2026-10-22",
+            "base_records": [{"record_id": "rec1", "公司": "示例", "岗位": "开发", "要求": "Python"}],
+            "uploaded_resumes": {"resume.md": "开发 Python"},
+            "model_output": block("jobscout_match", {"candidates": [{"record_id": "rec1", "score_items": [
+                {"dimension": "skills", "points": 30, "requirement_field": "要求", "requirement_quote": "Python", "matched_term": "Python", "resume_file": "resume.md", "resume_quote": "开发 Python"}]}]})},
+            "tool_calls": [{"name": "read_file", "status": "success"}],
+            "tool_messages": [{"type": "ai", "tool_calls": [{"id": "read", "name": "read_file", "args": {"path": "/mnt/user-data/uploads/resume.md"}}]},
+                {"type": "tool", "name": "read_file", "tool_call_id": "read", "content": "开发 Python"}]}
+        run["output"], _ = replay_structured_report(run, "base_match")
+        self.assertTrue(all(gate.status == "pass" for gate in check_base_report(run, {})))
+        original = run["output"]
+        for broken in (original.replace("30/100", "0/100"), original.replace("### rec1", "### other"), original.replace("30/100", "101/100")):
+            run["output"] = broken
+            self.assertTrue(any(gate.gate_id == "base_scores_in_range" and gate.status == "fail" for gate in check_base_report(run, {})))
 
 
 if __name__ == "__main__":

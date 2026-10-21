@@ -68,7 +68,18 @@ assert(escapedEvidenceHtml.includes("Python&#124;Spark") && !escapedEvidenceHtml
 console.log("PASS: JobScout mode and missing-guard fail-closed display");
 
 // ---- application tracker helpers ----
-const { trackerEvidenceLabel } = require("./core.js");
+const { trackerEvidenceLabel, trackerRecovery } = require("./core.js");
+assert.strictEqual(trackerRecovery({check_result:"需登录", status:"未知"}).kind, "login");
+assert.strictEqual(trackerRecovery({check_result:"抓取失败", status:"一面"}).kind, "retry");
+assert.strictEqual(trackerRecovery({check_result:"成功", status:"未知", checked_at:"2026-10-01",url:"https://example.test/"}).kind, "link");
+assert.strictEqual(trackerRecovery({check_result:"成功", status:"未知", checked_at:"2026-10-01",url:"https://example.test/applications"}).kind, "evidence");
+assert.strictEqual(trackerRecovery({status:"进行中·具体阶段未知",check_result:"成功"}).kind, "generic");
+assert.strictEqual(trackerRecovery({status:"一面",source_summary:{conflict:true}}).kind, "conflict");
+assert.strictEqual(trackerRecovery({status:"未知",checked_at:null}).kind, "first_check");
+assert.strictEqual(trackerRecovery({status:"Offer",check_result:"抓取失败"}).canRetry, false);
+assert.strictEqual(trackerRecovery({status:"一面",check_result:"成功",confidence:0.95,checked_at:"2026-10-01",evidence:"一面"}).kind, "verified");
+const mailWithPortalFailure = {status:"一面",check_result:"需登录",source_summary:{source:"email",status:"二面",conflict:false}};
+assert.strictEqual(trackerRecovery(mailWithPortalFailure).kind, "login", "mail must not hide portal login recovery");
 const genericProgress = { status: "进行中·具体阶段未知", stage: "进行中·具体阶段未知", raw_status: "进行中", confidence: 0.75, evidence: "当前申请状态：进行中", check_result: "成功", checked_at: "2026-10-21T00:00:00Z" };
 assert.strictEqual(trackerRowPresentation(genericProgress).needsReview, true);
 assert.deepStrictEqual(trackerSummary([genericProgress]), { total: 1, active: 0, review: 1, offers: 0 });

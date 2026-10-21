@@ -4,7 +4,7 @@
 
 const {
   resolveDeploymentConfig, isTerminalTrackerStatus, trackerDisplayRow,
-  trackerRowPresentation, trackerSummary, trackerStageWaitText, trackerStageLabel, trackerEvidenceLabel,
+  trackerRowPresentation, trackerSummary, trackerStageWaitText, trackerStageLabel, trackerEvidenceLabel, trackerRecovery, trackerIsSiteHomepage,
   trackerStageFilterOptions, filterTrackerRows, parseSseFrames, jobScoutRunContext,
   guardedMessageText, contentToText, extractLastVisibleAiText, looksLikeReport,
   sanitizeJobScoutReportMarkdown, normalizeReportMarkdownForRender,
@@ -860,13 +860,74 @@ function showTrackerError(message = "") {
   target.classList.toggle("hidden", !message);
 }
 
-function trackerIsSiteHomepage(url) {
-  try {
-    const parsed = new URL(url);
-    return (parsed.pathname === "/" || !parsed.pathname) && !parsed.search && !parsed.hash;
-  } catch (_) {
-    return false;
+let trackerRecoveryVersion = 0;
+
+function renderTrackerRecovery(row) {
+  const panel = $("trackerRecovery");
+  if (!panel) return;
+  panel.replaceChildren();
+  const recovery = trackerRecovery(row);
+  const session = viewSession;
+  const version = ++trackerRecoveryVersion;
+  const current = () => session === viewSession && version === trackerRecoveryVersion && $("trackerResultDialog").open;
+  panel.append(trackerElement("strong", "", recovery.title), trackerElement("p", "", recovery.message));
+  const actions = trackerElement("div", "tracker-recovery-actions");
+  const addButton = (label, handler) => {
+    const button = trackerElement("button", "secondary-btn", label);
+    button.type = "button";
+    button.addEventListener("click", () => { if (current()) handler(); });
+    actions.append(button);
+    return button;
+  };
+  if (recovery.canRetry && ["login", "retry", "first_check"].includes(recovery.kind)) {
+    const label = recovery.kind === "login" ? "登录并重新检查" : recovery.kind === "first_check" ? "开始检查" : "重试检查";
+    const retry = addButton(label, () => {
+      if (trackerJob) return;
+      $("trackerResultDialog").close();
+      refreshTrackerRow(row.id);
+    });
+    retry.disabled = trackerBusy;
   }
+  if (recovery.kind === "conflict") addButton("查看招聘邮件", () => { $("trackerResultDialog").close(); openTrackerMail(); });
+  if (recovery.canRetry && recovery.kind !== "verified") {
+    addButton("修改查询链接", () => {
+      if (panel.querySelector("form")) return;
+      const form = trackerElement("form", "tracker-recovery-form");
+      const label = trackerElement("label", "", "申请查询链接");
+      const input = trackerElement("input", "tracker-recovery-input");
+      input.type = "url"; input.required = true; input.value = row.url || "";
+      label.append(input);
+      const help = trackerElement("p", "", "保存只更新本条查询链接；不会自动访问网站或新增投递记录。");
+      const save = trackerElement("button", "primary-btn", "保存查询链接");
+      save.type = "submit";
+      const errorText = trackerElement("p", "tracker-review-label");
+      errorText.setAttribute("role", "status");
+      form.append(label, help, save, errorText);
+      panel.append(form);
+      input.focus();
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!current() || save.disabled) return;
+        let url;
+        try {
+          url = new URL(input.value.trim());
+          if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error();
+        } catch (_) { errorText.textContent = "请输入不含账号密码的 HTTP(S) 申请页面链接。"; return; }
+        save.disabled = true; input.disabled = true; errorText.textContent = "正在保存…";
+        try {
+          const updated = await apiJson(`/api/jobscout/tracker/applications/${row.id}`, {method: "PATCH", json: {url: url.href}});
+          if (!current()) return;
+          await loadTrackerApplications();
+          if (current()) showTrackerDetails(updated);
+        } catch (error) {
+          if (current()) errorText.textContent = error.message || "链接保存失败，请重试。";
+        } finally {
+          if (current()) { save.disabled = false; input.disabled = false; }
+        }
+      });
+    });
+  }
+  panel.append(actions);
 }
 
 function showTrackerResult(row, message = "刷新完成") {
@@ -893,6 +954,7 @@ function showTrackerResult(row, message = "刷新完成") {
   const source = $("trackerResultSource");
   if (source) source.href = row.url;
   setText("trackerResultChecked", formatTrackerDate(row.checked_at));
+  renderTrackerRecovery(row);
   if (typeof dialog.showModal === "function") dialog.showModal();
   else window.alert(`${row.company}｜岗位：${row.role}｜进度：${row.stage || row.status}\n${$("trackerResultMessage").textContent}`);
 }
@@ -900,7 +962,9 @@ function showTrackerResult(row, message = "刷新完成") {
 function showTrackerDetails(row) {
   showTrackerResult(row);
   $("trackerResultTitle").textContent = "官网识别详情";
-  $("trackerResultMessage").textContent = trackerRowPresentation(row).needsReview && row.checked_at
+  $("trackerResultMessage").textContent = row.check_result && row.check_result !== "成功"
+    ? "最近一次官网检查未完成；下方历史状态不能视为本次已确认的进度。请按恢复建议处理。"
+    : trackerRowPresentation(row).needsReview && row.checked_at
     ? "具体阶段或依据仍需核对。下方保留最近一次检查的原文；原文可核对不代表判断一定正确。"
     : "这里显示最近一次检查保存的页面原文和识别结果；请以官网页面为准。";
   if (row.source_summary) {
@@ -1461,6 +1525,7 @@ function setupTracker() {
   $("trackerImportBtn")?.addEventListener("click", () => $("trackerCsvInput").click());
   $("trackerCsvInput")?.addEventListener("change", importTrackerCsv);
   $("trackerResultClose")?.addEventListener("click", () => $("trackerResultDialog")?.close());
+  $("trackerResultDialog")?.addEventListener("close", () => { trackerRecoveryVersion += 1; });
   $("trackerAddForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;

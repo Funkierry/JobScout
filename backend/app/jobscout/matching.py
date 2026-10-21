@@ -5,13 +5,13 @@ from collections import Counter
 
 from app.evidence.grounding import ground_excerpt
 
-from .match_requirements import eligibility_issue, paired_evidence
+from .match_requirements import paired_evidence, qualification_checks
 
 DIMENSIONS = {"direction": 30, "skills": 30, "projects": 20, "education": 10, "preferences": 10}
 DIMENSION_LABELS = {"direction": "岗位方向", "skills": "技能", "projects": "项目", "education": "学历", "preferences": "地点与偏好"}
 
 
-def score_matches(candidates, records, resumes, *, audit=None):
+def score_matches(candidates, records, resumes, *, audit=None, excluded=None):
     audit = audit if audit is not None else Counter()
     known = {row["record_id"]: row for row in records if isinstance(row, dict) and isinstance(row.get("record_id"), str)}
     if not isinstance(candidates, list) or len(candidates) > 200:
@@ -24,8 +24,11 @@ def score_matches(candidates, records, resumes, *, audit=None):
         if not isinstance(record_id, str) or record_id not in known or record_id in visited:
             continue
         visited.add(record_id)
-        if issue := eligibility_issue(known[record_id], resumes):
+        requirements = qualification_checks(known[record_id], resumes)
+        if issue := next((item["reason"] for item in requirements if item["judgement"] == "not_met"), ""):
             audit[issue] += 1
+            if excluded is not None and len(excluded) < 10:
+                excluded.append({"record_id": record_id, "record": known[record_id], "requirement_checks": requirements, "score_items": [], "reason": issue, "total": 0})
             continue
         items = candidate.get("score_items")
         items = items if isinstance(items, list) and len(items) <= 20 else []
@@ -53,10 +56,23 @@ def score_matches(candidates, records, resumes, *, audit=None):
             if reason:
                 audit[reason] += 1
                 audit["zeroed_items"] += 1
-            checked.append({"dimension": dimension, "points": 0 if reason else points, "resume_file": filename if not reason else "", "resume_quote": span if not reason else "", "reason": reason, **pair})
+            limited = reason == "proficiency_not_supported"
+            checked.append(
+                {
+                    "dimension": dimension,
+                    "points": 0 if reason else points,
+                    "resume_file": filename if not reason or limited else "",
+                    "resume_quote": span if not reason or limited else "",
+                    "reason": reason,
+                    "judgement": "limited" if limited else "supported" if not reason and points > 0 else "unknown",
+                    **pair,
+                }
+            )
         total = sum(item["points"] for item in checked)
         if total <= 0:
             audit["no_positive_evidence"] += 1
+            if excluded is not None and len(excluded) < 10:
+                excluded.append({"record_id": record_id, "record": known[record_id], "requirement_checks": requirements, "score_items": checked, "reason": "no_positive_evidence", "total": 0})
             continue
-        result.append({"record_id": record_id, "record": known[record_id], "score_items": checked, "total": total})
+        result.append({"record_id": record_id, "record": known[record_id], "score_items": checked, "requirement_checks": requirements, "total": total})
     return sorted(result, key=lambda row: (-row["total"], row["record_id"]))[:10]

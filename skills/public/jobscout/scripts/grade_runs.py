@@ -10,20 +10,20 @@ import re
 import statistics
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 from urllib.parse import urlparse
-
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = SKILL_ROOT / "evals" / "behavior_eval_set.json"
 # The production helper is stdlib-only, so this CLI stays offline and does not
 # require installing the backend or loading its configuration / credentials.
 sys.path.insert(0, str(SKILL_ROOT.parents[2] / "backend"))
-from app.jobscout.links import collect_seen_urls, strip_unseen_links  # noqa: E402
 from app.jobscout.evidence import ResearchEvidence, parse_payload  # noqa: E402
+from app.jobscout.links import collect_seen_urls, strip_unseen_links  # noqa: E402
 from app.jobscout.matching import score_matches  # noqa: E402
 from app.jobscout.render import render_matches, render_prep  # noqa: E402
 
@@ -293,8 +293,12 @@ def check_base_report(run: dict[str, Any], case: dict[str, Any]) -> list[Gate]:
             scores_ok = False
             record_ids_ok = False
             continue
-        score_match = re.search(r"\d+(?:\.\d+)?", row[1])
-        if not score_match or not 0 < float(score_match.group()) <= 100:
+        if row[1] in {"需要补充信息", "有依据，可进一步核对"}:
+            detail = markdown_section(markdown_section(output, 2, "匹配依据") or "", 3, row[-1]) or ""
+            score_match = re.search(r"^依据分：(\d+)/100，仅用于排序。$", detail, re.MULTILINE)
+        else:
+            score_match = re.search(r"(\d+(?:\.\d+)?)", row[1])
+        if not score_match or not 0 < float(score_match.group(1)) <= 100:
             scores_ok = False
         if not row[-1] or row[-1] in {"-", "—", "无"}:
             record_ids_ok = False
@@ -305,7 +309,7 @@ def check_base_report(run: dict[str, Any], case: dict[str, Any]) -> list[Gate]:
         gate("base_title", h1 == ["简历 × 飞书岗位匹配报告"], "Base 报告标题正确", "Base 报告标题错误或不唯一"),
         gate("base_exact_sections", h2 == BASE_H2, "Base 四个二级章节准确且顺序正确", f"Base 二级章节不符合契约：{h2}"),
         gate("base_recommendation_limit", explicit_empty or 1 <= len(rows) <= 10, "最多推荐 10 个岗位；空结果明确说明证据边界", f"推荐岗位数量或空结果说明无效：{len(rows)}"),
-        gate("base_scores_in_range", explicit_empty or bool(rows) and scores_ok, "推荐依据分大于 0 且不超过 100", "推荐表存在零分、缺列或越界分数"),
+        gate("base_scores_in_range", explicit_empty or bool(rows) and scores_ok, "推荐依据分大于 0 且不超过 100", "推荐表或对应详情存在零分、缺列、缺分或越界分数"),
         gate("base_record_ids", explicit_empty or bool(rows) and record_ids_ok, "推荐岗位均保留记录标识", "推荐岗位缺少可追溯记录标识"),
         gate("no_sensitive_values", not sensitive, "未输出手机号或身份证号", f"输出疑似敏感值：{', '.join(sensitive)}"),
     ]
@@ -500,8 +504,9 @@ def replay_structured_report(run: dict[str, Any], mode: str) -> tuple[str, dict]
     if mode == "base_match":
         payload = parse_payload(artifact.get("model_output"), "jobscout_match")
         audit = Counter()
-        matches = score_matches(payload.get("candidates") if isinstance(payload, dict) else None, evidence.records, evidence.read_resumes, audit=audit)
-        report = strip_unseen_links(render_matches(matches, evidence, rejection_counts=audit), set())[0]
+        excluded = []
+        matches = score_matches(payload.get("candidates") if isinstance(payload, dict) else None, evidence.records, evidence.read_resumes, audit=audit, excluded=excluded)
+        report = strip_unseen_links(render_matches(matches, evidence, rejection_counts=audit, excluded=excluded), set())[0]
         stats = {"accepted": len(matches), "zeroed_items": audit["zeroed_items"], "matching_rejected_counts": dict(audit)}
     else:
         payload = parse_payload(artifact.get("model_output"), "jobscout_report")
@@ -584,7 +589,7 @@ def slice_tags(results: list[dict[str, Any]]) -> dict[str, Any]:
 def build_report(results: list[dict[str, Any]], dataset: dict[str, Any], threshold: float) -> dict[str, Any]:
     return {
         "schema_version": "1.0",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "dataset": {
             "suite": dataset.get("suite"),
             "schema_version": dataset.get("schema_version"),

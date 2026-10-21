@@ -72,3 +72,10 @@ confidence percentages for portal and mail displays. Matching history, live
 rendering, print and download additionally require the server's
 `match_contract_version=1`; older reports prompt regeneration. Preserve explicit
 zero-recommendation results and distinguish evidence scores from probabilities.
+
+`trackerRecovery` uses stored portal outcomes even when mail supplies the displayed
+stage. Recovery buttons reuse single refresh and same-record URL PATCH; never retry
+automatically or create a duplicate application. Link edits validate HTTP(S), reject
+credentials, preserve failures for retry, and fence late replies by session and dialog
+version. Keep terminal checks disabled. Test desktop/mobile, stale replies, report
+comparisons, Markdown download and print with intercepted requests in `test_ui.py`.

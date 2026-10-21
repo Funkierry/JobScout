@@ -65,7 +65,7 @@ def render_prep(payload, items, evidence):
     return "\n".join(lines)
 
 
-def render_matches(matches, evidence, *, rejection_counts=None):
+def render_matches(matches, evidence, *, rejection_counts=None, excluded=None):
     lines = [
         "# 简历 × 飞书岗位匹配报告",
         "",
@@ -77,7 +77,7 @@ def render_matches(matches, evidence, *, rejection_counts=None):
         "",
         "依据分用于排列已提供对应证据的岗位，不是匹配概率或录用概率。缺少证据不等于不符合要求。",
         "",
-        "| 排名 | 依据分 | 公司 / 岗位 | 核心匹配 | 待核对项 | 建议动作 | 记录标识 |",
+        "| 排名 | 核对分组 | 公司 / 岗位 | 核心匹配 | 待核对项 | 建议动作 | 记录标识 |",
         "|---|---|---|---|---|---|---|",
     ]
     for index, row in enumerate(matches, 1):
@@ -86,18 +86,39 @@ def render_matches(matches, evidence, *, rejection_counts=None):
         role = next((value for key, value in record.items() if any(word in key.lower() for word in ("岗位", "职位", "职务", "role", "position", "job")) and isinstance(value, str)), "")
         supported = "、".join(DIMENSION_LABELS[item["dimension"]] for item in row["score_items"] if item["points"] > 0)
         pending = "、".join(DIMENSION_LABELS[item["dimension"]] for item in row["score_items"] if item["points"] == 0) or "具体满足程度"
-        lines.append(f"| {index} | {row['total']}/100 | {cell(company, 200)} / {cell(role, 300)} | {supported}有对应原文 | {pending}待核对 | 人工复核岗位要求 | {cell(row['record_id'], 200)} |")
+        needs_info = any(item.get("judgement", "unknown") != "supported" for item in [*row["score_items"], *row.get("requirement_checks", [])])
+        group = "需要补充信息" if needs_info else "有依据，可进一步核对"
+        lines.append(f"| {index} | {group} | {cell(company, 200)} / {cell(role, 300)} | {supported}有对应原文 | {pending}待核对 | 补充缺项并核对岗位要求 | {cell(row['record_id'], 200)} |")
     if not matches:
         lines.extend(["", "没有通过双侧证据校验的推荐岗位。请补充岗位要求或简历材料，或核对明确的学历、经验冲突；不使用零分岗位凑数。"])
     lines.extend(["", "## 匹配依据", ""])
-    for row in matches:
-        lines.extend([f"### {cell(row['record_id'], 200)}", "", "| 维度 | 依据分 | 岗位要求原文 | 简历原文 | 对应内容 / 核对状态 |", "|---|---|---|---|---|"])
-        for item in row["score_items"]:
-            quote = cell(item["resume_quote"]) if not item["reason"] else "未通过证据或分值校验，不计分"
-            requirement = cell(item.get("requirement_quote", "")) or "待补充"
-            term = cell(item.get("matched_term", "")) or "待核对，不代表不满足"
-            lines.append(f"| {DIMENSION_LABELS[item['dimension']]} | {item['points']} | {requirement} | {quote} | {term} |")
+    labels = {**DIMENSION_LABELS, "experience": "工作经验"}
+    judgements = {"supported": "有支持", "limited": "支持有限", "not_met": "明确不满足", "unknown": "待确认"}
+
+    def comparison(row):
+        lines.extend(["| 要求 / 字段 | 岗位原文 | 简历原文 / 文件 | 判断 | 下一步 |", "|---|---|---|---|---|"])
+        for item in [*row.get("requirement_checks", []), *row["score_items"]]:
+            state = item.get("judgement", "unknown")
+            action = {"supported": "核对适用范围与具体满足程度", "limited": "补充能证明熟练度的项目或工作经历", "not_met": "核对门槛或选择其他岗位", "unknown": "补充该项岗位要求或简历依据后重新匹配"}[state]
+            requirement = cell(item.get("requirement_quote", "")) or "未取得可核对的要求片段"
+            resume = cell(item.get("resume_quote", "")) or "未取得可用简历依据；不代表不符合"
+            if item.get("resume_file"):
+                resume += "（" + cell(item["resume_file"], 200) + "）"
+            field = cell(item.get("requirement_field", ""))
+            score = f" · {item['points']} 分" if "points" in item else ""
+            lines.append(f"| {labels[item['dimension']]}{(' / ' + field) if field else ''} | {requirement} | {resume} | {judgements[state]}{score} | {action} |")
         lines.append("")
+
+    for row in matches:
+        lines.extend([f"### {cell(row['record_id'], 200)}", "", f"依据分：{row['total']}/100，仅用于排序。", ""])
+        comparison(row)
+    if excluded:
+        lines.extend(["### 未入推荐的岗位", "", "仅展示本轮校验过的前 10 个未入推荐岗位；不是完整岗位库的淘汰清单。", ""])
+        for row in excluded[:10]:
+            reason = "存在明确的学历或经验最低门槛冲突" if row["reason"] in {"education_conflict", "experience_conflict"} else "没有可计入排名的正分依据"
+            identity = " / ".join(cell(value, 200) for key, value in row["record"].items() if re.search(r"^(公司|企业|岗位|职位|职务|company|role|position|job.?title)$", key, re.I) and isinstance(value, str))
+            lines.extend([f"#### {cell(row['record_id'], 200)}", "", identity, "", reason + "。", ""])
+            comparison(row)
     lines.extend(
         [
             "## 风险与数据边界",
@@ -106,6 +127,7 @@ def render_matches(matches, evidence, *, rejection_counts=None):
             f"- 本次校验范围为已读取快照的 {len(evidence.records)} 条岗位；尚有未读分页：{'是' if evidence.base_bounds.get('has_more') else '否'}；上下文裁剪：{'是' if evidence.base_bounds.get('context_truncated') else '否'}。",
             "- 岗位来自当前用户、本线程的服务器快照；简历依据来自成功读取的已上传文件。",
             "- 对应关键词、明确学历和经验冲突采用有限规则检查；语义、熟练程度及未覆盖的硬性要求仍需人工复核，分值仍为模型建议。信息未知不等于不满足。",
+            "- 要求对照只覆盖本轮提交的维度与规则可识别的学历、经验最低门槛，未逐条覆盖完整 JD；有支持不代表已满足全部条件。学历和经验对照不额外加分。",
             f"- 本轮因明确学历/经验冲突未入榜 {(rejection_counts or {}).get('education_conflict', 0) + (rejection_counts or {}).get('experience_conflict', 0)} 个；"
             f"因无有效正分依据未入榜 {(rejection_counts or {}).get('no_positive_evidence', 0)} 个。",
         ]
