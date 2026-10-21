@@ -37,7 +37,34 @@ def test_rules_accept_generic_but_do_not_confuse_it_with_specific_stages():
     assert result.status.value == GENERIC
 
 
-def test_legacy_reclassification_is_idempotent_and_preserves_manual_stage_and_history(tmp_path):
+@pytest.mark.parametrize("phrase", ["进行中", "处理中", "审核中"])
+@pytest.mark.parametrize("old", [ApplicationStatus.UNKNOWN, ApplicationStatus.RESUME_SCREENING])
+def test_short_application_status_json_preserves_generic_progress(phrase, old):
+    status, score = normalize_generic_active_status(old, raw_status=phrase, evidence=f'"statusInfoCN": "{phrase}",', confidence=0.95)
+    assert status is ApplicationStatus.IN_PROGRESS and score <= 0.75
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        '"otherStatusInfoCN": "进行中"',
+        '"statusInfoCN": "未开始", "note": "进行中"',
+        '"statusInfoCN": "进行中", "stage": "简历审核中"',
+    ],
+)
+def test_short_json_does_not_override_an_unrelated_field_or_specific_stage(evidence):
+    status, _ = normalize_generic_active_status(ApplicationStatus.RESUME_SCREENING, raw_status="进行中", evidence=evidence, confidence=0.9)
+    assert status is ApplicationStatus.RESUME_SCREENING
+
+
+def test_current_json_observation_uses_the_same_generic_status_rule():
+    text = '{"role": "Python 工程师", "statusInfoCN": "进行中"}'
+    result = assess_status(ApplicationStatus.RESUME_SCREENING, raw_status="进行中", evidence='"statusInfoCN": "进行中"', role="Python 工程师", sources=[SourceObservation(kind="json", text=text)])
+    assert result.status is ApplicationStatus.IN_PROGRESS
+
+
+@pytest.mark.parametrize("saved_evidence", ["当前申请状态：进行中", '"statusInfoCN": "进行中",'])
+def test_legacy_reclassification_is_idempotent_and_preserves_manual_stage_and_history(tmp_path, saved_evidence):
     path = tmp_path / "tracker.db"
     store = ApplicationTrackerStore(path)
     now = datetime(2026, 10, 21, tzinfo=UTC)
@@ -53,7 +80,7 @@ def test_legacy_reclassification_is_idempotent_and_preserves_manual_stage_and_hi
                 url=row.url,
                 status=ApplicationStatus.RESUME_SCREENING,
                 raw_status="进行中",
-                evidence="当前申请状态：进行中",
+                evidence=saved_evidence,
                 confidence=0.75,
                 checked_at=now,
                 changed_at=now,

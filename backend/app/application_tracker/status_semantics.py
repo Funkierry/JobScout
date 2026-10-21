@@ -30,6 +30,9 @@ _APPLICATION_STATUS_CONTEXT = re.compile(
     r"|(?:status|progress).{0,20}(?:application|candidate)",
     re.IGNORECASE,
 )
+# A saved application-status excerpt may contain only this JSON field, without
+# surrounding DOM labels. Its own value must match the generic raw status.
+_APPLICATION_STATUS_JSON = re.compile(r'"statusInfoCN"\s*:\s*"([^"\\]+)"', re.IGNORECASE)
 _MORE_SPECIFIC_OR_TERMINAL = re.compile(
     r"简历(?:审核|筛选|评估)|材料审核|筛选中|resume\s*review|screening"
     r"|面试|笔试|测评|考试|测验|录用|终止|未通过|淘汰|拒绝|撤回|取消|关闭"
@@ -55,7 +58,8 @@ def normalize_generic_active_status(
     normalized_evidence = re.sub(r"[\s:：。.!！]+", "", evidence).casefold()
     if phrase not in normalized_evidence:
         return status, confidence
-    if not _APPLICATION_STATUS_CONTEXT.search(evidence) or _MORE_SPECIFIC_OR_TERMINAL.search(evidence):
+    json_context = any(re.sub(r"[\s:：。.!！]+", "", value).casefold() == phrase for value in _APPLICATION_STATUS_JSON.findall(evidence))
+    if not (_APPLICATION_STATUS_CONTEXT.search(evidence) or json_context) or _MORE_SPECIFIC_OR_TERMINAL.search(evidence):
         return status, confidence
     return ApplicationStatus.IN_PROGRESS, min(confidence, _MAX_GENERIC_CONFIDENCE)
 
