@@ -2114,7 +2114,7 @@ function openPrintWindow(html) {
   }
   // Absolute URL — a blank popup's relative-path resolution for a
   // document.write'd page is inconsistent across browsers.
-  const styleHref = new URL("style.css", location.href).href;
+  const styleHref = document.querySelector('link[rel="stylesheet"]')?.href || new URL("style.css", location.href).href;
   printWin.document.write(
     `<!doctype html><html><head><meta charset="utf-8"><title>JobScout 报告</title>` +
       `<link rel="stylesheet" href="${styleHref}" /></head>` +

@@ -79,3 +79,5 @@ automatically or create a duplicate application. Link edits validate HTTP(S), re
 credentials, preserve failures for retry, and fence late replies by session and dialog
 version. Keep terminal checks disabled. Test desktop/mobile, stale replies, report
 comparisons, Markdown download and print with intercepted requests in `test_ui.py`.
+Version the stylesheet URL when CSS changes so existing sessions receive it;
+the print window must reuse that same stylesheet URL.
