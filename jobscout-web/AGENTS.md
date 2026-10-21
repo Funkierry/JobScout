@@ -90,3 +90,5 @@ to ordinary chat bubbles. Bind report notes to a SHA-256 of sanitized Markdown
 (HTTPS/localhost Web Crypto); do not treat that digest as evidence verification.
 Keep notes out of report print/download. Failed writes retain inputs; stale reads
 and writes must not restore content after logout, navigation or dialog replacement.
+Scope workbench button styles explicitly; legacy tracker button selectors do not
+cover the new pending/feedback/preparation containers. Check the deployed screenshot.

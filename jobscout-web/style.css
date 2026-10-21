@@ -1405,6 +1405,11 @@ input.tracker-inline-input:focus { border-color: var(--blue); background: var(--
 .workbench-item { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; border: 1px solid var(--line); border-radius: var(--radius-xs); padding: 12px; min-width: 0; }
 .workbench-item > div { min-width: 0; overflow-wrap: anywhere; }
 .workbench-item button { flex-shrink: 0; }
+.workbench-pending .secondary-btn, .workbench-dialog .secondary-btn, .preparation-actions .secondary-btn { appearance: none; border: 1px solid var(--line-strong); border-radius: var(--radius-xs); padding: 8px 12px; background: var(--panel); color: var(--ink-soft); font: inherit; font-size: 12px; line-height: 1.4; cursor: pointer; }
+.workbench-pending .secondary-btn:hover, .workbench-dialog .secondary-btn:hover, .preparation-actions .secondary-btn:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
+.workbench-pending button:focus-visible, .workbench-dialog button:focus-visible, .preparation-actions button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.workbench-dialog .primary-btn, .preparation-actions .primary-btn { min-height: 38px; padding: 8px 14px; font: inherit; font-size: 13px; line-height: 1.4; cursor: pointer; }
+.workbench-pending button:disabled, .workbench-dialog button:disabled, .preparation-actions button:disabled { opacity: .6; cursor: wait; }
 .workbench-item p, .workbench-pending > p, .preparation-actions > p, .workbench-dialog > p { color: var(--muted); font-size: 12px; line-height: 1.7; }
 .workbench-kind { display: block; font-size: 12px; color: var(--blue); margin-top: 5px; }
 .workbench-navigation, .workbench-heading { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
