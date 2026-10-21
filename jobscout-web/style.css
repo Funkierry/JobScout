@@ -1398,6 +1398,26 @@ input.tracker-inline-input:focus { border-color: var(--blue); background: var(--
 .tracker-stage-line span { padding: 0 5px; }
 .tracker-stage-line button { min-height: 28px; padding: 3px 7px; font-size: 10px; }
 .tracker-inline-input { width: 140px; }
+.workbench-pending { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); padding: 12px 16px; margin-bottom: 14px; }
+.workbench-pending summary { cursor: pointer; font-weight: 600; }
+#workbenchCount { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.workbench-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 10px; }
+.workbench-item { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; border: 1px solid var(--line); border-radius: var(--radius-xs); padding: 12px; min-width: 0; }
+.workbench-item > div { min-width: 0; overflow-wrap: anywhere; }
+.workbench-item button { flex-shrink: 0; }
+.workbench-item p, .workbench-pending > p, .preparation-actions > p, .workbench-dialog > p { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.workbench-kind { display: block; font-size: 12px; color: var(--blue); margin-top: 5px; }
+.workbench-navigation, .workbench-heading { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.workbench-heading { justify-content: space-between; margin-top: 0; }
+.workbench-dialog { width: min(640px, calc(100vw - 24px)); max-height: 88vh; overflow: auto; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); color: var(--ink); box-shadow: var(--shadow-lg); }
+.workbench-form { display: grid; gap: 12px; margin: 16px 0; }
+.workbench-form label { display: grid; gap: 6px; font-size: 13px; }
+.workbench-form textarea { width: 100%; min-width: 0; resize: vertical; border: 1px solid var(--line-strong); border-radius: var(--radius-xs); padding: 10px; color: var(--ink); background: var(--panel); font: inherit; }
+.workbench-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 12px; }
+.workbench-form .preparation-check { display: flex; align-items: center; }
+.preparation-actions { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 20px; background: var(--panel); }
+.preparation-actions h3 { margin-top: 0; }
+.preparation-actions > button { margin: 0 8px 8px 0; }
 .tracker-stage-select { max-width: 155px; border-radius: var(--radius-xs); }
 .tracker-result-dialog { width: min(560px, calc(100vw - 32px)); max-height: min(80vh, 720px); overflow: auto; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); background: var(--panel); box-shadow: var(--shadow-lg); }
 .tracker-result-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; }

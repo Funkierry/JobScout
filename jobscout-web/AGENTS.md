@@ -81,3 +81,12 @@ version. Keep terminal checks disabled. Test desktop/mobile, stale replies, repo
 comparisons, Markdown download and print with intercepted requests in `test_ui.py`.
 Version the stylesheet URL when CSS changes so existing sessions receive it;
 the print window must reuse that same stylesheet URL.
+
+`workbench.js` owns pending items, report-version prep notes and feedback UI. Load
+it before app.js and include it in Docker/fixture assets. Also run `test_workbench.py`
+and keep it in regression CI: production temporary-SQLite persistence, synthetic
+reports, lost-response retries, mobile and logout fencing. Never attach prep forms
+to ordinary chat bubbles. Bind report notes to a SHA-256 of sanitized Markdown
+(HTTPS/localhost Web Crypto); do not treat that digest as evidence verification.
+Keep notes out of report print/download. Failed writes retain inputs; stale reads
+and writes must not restore content after logout, navigation or dialog replacement.

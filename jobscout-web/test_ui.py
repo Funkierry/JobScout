@@ -231,6 +231,7 @@ def main():
                 "/app.js",
                 "/core.js",
                 "/tracker-state.js",
+                "/workbench.js",
                 "/api-client.js",
                 "/runtime-config.js",
                 "/style.css",
@@ -243,11 +244,16 @@ def main():
                         "app.js": "text/javascript",
                         "core.js": "text/javascript",
                         "tracker-state.js": "text/javascript",
+                        "workbench.js": "text/javascript",
                         "api-client.js": "text/javascript",
                         "runtime-config.js": "text/javascript",
                         "style.css": "text/css",
                     }[name],
                 )
+            elif path == "/api/jobscout/workbench":
+                fulfill({"items": [], "total": 0, "has_more": False})
+            elif path.startswith("/api/jobscout/preparation/"):
+                fulfill({"revision": 0, "done": [], "experience": "", "materials": ""})
             elif path == "/favicon.ico":
                 request_route.fulfill(status=204)
             elif path == "/api/v1/auth/me":

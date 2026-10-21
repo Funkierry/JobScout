@@ -10,9 +10,7 @@ from test_ui import ROOT, STAGES, fixtures, page_payload
 def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context(
-            service_workers="block", viewport={"width": 1440, "height": 1000}
-        )
+        context = browser.new_context(service_workers="block", viewport={"width": 1440, "height": 1000})
         page = context.new_page()
         unexpected, errors, cancellations = [], [], []
         page.on("pageerror", lambda error: errors.append(str(error)))
@@ -36,10 +34,9 @@ def main():
                 "/api/threads/search": [],
                 "/api/jobscout/opportunities": [],
                 "/api/jobscout/tracker/stages": STAGES,
-                "/api/jobscout/tracker/applications/page": page_payload(
-                    fixtures(), url.query
-                ),
+                "/api/jobscout/tracker/applications/page": page_payload(fixtures(), url.query),
                 "/api/jobscout/tracker/notifications": [],
+                "/api/jobscout/workbench": {"items": [], "total": 0, "has_more": False},
                 "/api/integrations/lark/status": {"installed": False},
                 "/api/threads": {"thread_id": "fixture-chat"},
                 "/api/v1/auth/logout": {},
@@ -54,6 +51,7 @@ def main():
                 "/app.js",
                 "/core.js",
                 "/tracker-state.js",
+                "/workbench.js",
                 "/api-client.js",
                 "/runtime-config.js",
                 "/style.css",
@@ -66,6 +64,7 @@ def main():
                         "app.js": "text/javascript",
                         "core.js": "text/javascript",
                         "tracker-state.js": "text/javascript",
+                        "workbench.js": "text/javascript",
                         "api-client.js": "text/javascript",
                         "runtime-config.js": "text/javascript",
                         "style.css": "text/css",
@@ -179,9 +178,7 @@ def main():
         expect(page.locator("#chatStatus")).to_contain_text("投递记录")
         assert page.evaluate("trackerBusy") is True
         # A completed row outside the visible page still owns the result notice.
-        page.evaluate(
-            "fixture.batchEvent({type:'row_completed',completed:6,total:6,application:{...trackerRows[0],id:999,company:'跨页公司',role:'跨页岗位',check_result:'成功'}})"
-        )
+        page.evaluate("fixture.batchEvent({type:'row_completed',completed:6,total:6,application:{...trackerRows[0],id:999,company:'跨页公司',role:'跨页岗位',check_result:'成功'}})")
         page.evaluate("fixture.finishBatch()")
         page.wait_for_function("!trackerBusy")
         expect(page.locator("dialog:modal")).to_have_count(0)
@@ -255,9 +252,7 @@ def main():
         assert page.evaluate("trackerRows.length") == 0
         assert not unexpected and not errors, (unexpected, errors)
         browser.close()
-        print(
-            "PASS: concurrent chat/refresh, view switching, background results, cancellation and logout; all requests synthetic"
-        )
+        print("PASS: concurrent chat/refresh, view switching, background results, cancellation and logout; all requests synthetic")
 
 
 if __name__ == "__main__":

@@ -172,6 +172,7 @@ class ApplicationTrackerStore:
     def _initialize(self) -> None:
         from app.application_tracker.email.store import SCHEMA as MAIL_SCHEMA
         from app.application_tracker.scheduling import SCHEMA as SCHEDULING_SCHEMA
+        from app.application_tracker.workbench import SCHEMA as WORKBENCH_SCHEMA
 
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
@@ -236,6 +237,7 @@ class ApplicationTrackerStore:
             connection.execute("UPDATE applications SET stage = status WHERE stage = ''")
             connection.executescript(MAIL_SCHEMA)
             connection.executescript(SCHEDULING_SCHEMA)
+            connection.executescript(WORKBENCH_SCHEMA)
             connection.execute("CREATE TABLE IF NOT EXISTS application_stages (user_id TEXT NOT NULL, name TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY(user_id, name), UNIQUE(user_id, position))")
             connection.executescript(
                 """
@@ -356,6 +358,8 @@ class ApplicationTrackerStore:
         with self._connect() as connection:
             connection.execute("DELETE FROM jobscout_opportunity_threads WHERE user_id=? AND thread_id=?", (user_id, thread_id))
             connection.execute("DELETE FROM jobscout_match_candidates WHERE user_id=? AND thread_id=?", (user_id, thread_id))
+            connection.execute("DELETE FROM jobscout_prep_plans WHERE user_id=? AND thread_id=?", (user_id, thread_id))
+            connection.execute("DELETE FROM jobscout_feedback WHERE user_id=? AND thread_id=?", (user_id, thread_id))
             connection.execute("DELETE FROM jobscout_thread_deletions WHERE user_id=? AND thread_id=?", (user_id, thread_id))
 
     def create_opportunity(

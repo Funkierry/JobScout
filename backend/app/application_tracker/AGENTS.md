@@ -1,5 +1,13 @@
 # Application tracker
 
+`workbench.py` derives pending items from all owner-scoped compact application
+rows and existing mail/notification state, never from the visible page or new
+portal calls. User prep notes and feedback are separate SQLite tables; never
+promote them to observed evidence. Plans bind owner/thread/report digest, use
+revision compare-and-swap and idempotent retries. Feedback request IDs deduplicate
+lost responses. Thread cleanup removes its notes/feedback transactionally. Keep
+owner isolation, unchanged source rows, pagination and restart coverage offline.
+
 `pagination.py` returns owner-scoped cursor pages: only page rows load full evidence;
 global summaries scan compact state. Reuse MailStore resolution for mail conflicts
 and manual stages. Keep the legacy full list for exports/batches; no count claims

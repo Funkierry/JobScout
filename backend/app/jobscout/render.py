@@ -62,6 +62,14 @@ def render_prep(payload, items, evidence):
             "- 允许少量题或零题；证据不足的小节已明确说明。简历差距仅展示有简历原文依据的条目。",
         ]
     )
+    lines.extend(["", "### 准备行动", "", "以下是建议动作，不是公司面试安排；优先级仅用于安排准备顺序，不代表考试概率。", "", "| 顺序 | 岗位依据 | 可用个人经历 | 建议动作 / 待补材料 |", "|---|---|---|---|"])
+    priorities = [item for name in ("gap", "required", "duties") for item in items if item["section"] == name][:3]
+    for index, item in enumerate(priorities, 1):
+        experience = cell(item.get("resume_quote", "")) or "本条没有已校验的个人经历，请自行补充"
+        lines.append(f"| {index} | {cell(item['quote'])} · {source(item)} | {experience} | 围绕该要求整理一个真实案例，补充个人职责、具体行动和可核对的结果 |")
+    if not priorities:
+        lines.append("| 1 | 未取得可用岗位要求原文 | 尚无可对应的个人经历 | 补充岗位 JD 与简历，再生成针对性的准备内容 |")
+    lines.extend(["", "- 先核对上述岗位原文，再选择真实经历；不补写未经提供的成果。", "- 练习本报告中标为推导的问题，记录回答要点与待核对资料；推导题不等于公司真题。", "- 准备进度与个人笔记可在报告下方保存，独立于这份证据报告。"])
     return "\n".join(lines)
 
 
@@ -130,6 +138,12 @@ def render_matches(matches, evidence, *, rejection_counts=None, excluded=None):
             "- 要求对照只覆盖本轮提交的维度与规则可识别的学历、经验最低门槛，未逐条覆盖完整 JD；有支持不代表已满足全部条件。学历和经验对照不额外加分。",
             f"- 本轮因明确学历/经验冲突未入榜 {(rejection_counts or {}).get('education_conflict', 0) + (rejection_counts or {}).get('experience_conflict', 0)} 个；"
             f"因无有效正分依据未入榜 {(rejection_counts or {}).get('no_positive_evidence', 0)} 个。",
+            "",
+            "### 准备行动",
+            "",
+            "1. 优先核对要求对照中标为待确认或支持有限的项目，补充岗位 JD 或对应简历材料；这不是不符合要求的结论。",
+            "2. 从已有简历原文选择一个相关经历，补充个人职责、具体行动与可核对的结果；不编写未提供的经历。",
+            "3. 核对后再决定接受或放弃推荐，并在报告下方记录原因；需要面试准备时保存目标岗位并继续准备。",
         ]
     )
     return "\n".join(lines)

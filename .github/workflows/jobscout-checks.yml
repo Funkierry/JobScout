@@ -44,6 +44,7 @@ jobs:
           backend/.venv/bin/python jobscout-web/test_ui.py
           backend/.venv/bin/python jobscout-web/test_history_scroll.py
           backend/.venv/bin/python jobscout-web/test_concurrency.py
+          backend/.venv/bin/python jobscout-web/test_workbench.py
       - name: Skill and evidence-grader regressions (synthetic fixtures only)
         run: backend/.venv/bin/python -B -m unittest discover -s skills/public/jobscout/scripts -p 'test_*.py'
       - uses: actions/upload-artifact@v4

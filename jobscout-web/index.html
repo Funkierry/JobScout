@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="theme-color" content="#f6f7f9" />
 <title>JobScout · 投递进度与面试准备</title>
-<link rel="stylesheet" href="style.css?v=20261022-2" />
+<link rel="stylesheet" href="style.css?v=20261022-3" />
 </head>
 <body>
 
@@ -291,6 +291,14 @@
         <button id="trackerOverviewToggle" type="button" class="secondary-btn" aria-controls="trackerOverview" aria-expanded="false">展开概览</button>
       </div>
 
+      <details id="workbenchPending" class="workbench-pending">
+        <summary>待处理事项<span id="workbenchCount"></span></summary>
+        <p id="workbenchStatus" role="status"></p>
+        <div id="workbenchItems" class="workbench-items"></div>
+        <div id="workbenchNavigation" class="workbench-navigation"></div>
+        <div class="workbench-navigation"><button id="workbenchRefresh" type="button" class="secondary-btn">重新读取事项</button><button id="workbenchFeedback" type="button" class="secondary-btn">反馈与试用记录</button></div>
+      </details>
+
       <div id="trackerOverview" class="tracker-overview hidden" aria-label="全部投递概览" aria-live="polite">
         <article class="tracker-stat"><span>全部投递</span><strong id="trackerTotalCount">0</strong><small>所有已保存的申请</small></article>
         <article class="tracker-stat tracker-stat-active"><span>进行中</span><strong id="trackerActiveCount">0</strong><small>已确认 · 等待下一步</small></article>
@@ -417,6 +425,7 @@
 <script src="core.js"></script>
 <script src="api-client.js"></script>
 <script src="tracker-state.js"></script>
+<script src="workbench.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

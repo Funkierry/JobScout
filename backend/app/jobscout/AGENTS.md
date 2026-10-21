@@ -11,3 +11,9 @@ report, never audit metadata. Grouped summaries put scores in each record's deta
 only the recommendation table feeds candidate persistence. Keep runtime and grader
 replay identical. Render all source text through `cell`; ungrounded quotes must not
 reappear in explanations. See `docs/jobscout/requirements-and-recovery.md`.
+
+Preparation actions stay inside the existing final report section. Select only
+validated requirement/gap items, preserve source links and grounded resume quotes,
+and label ordering/actions as suggestions, not interview schedules or probabilities.
+Personal notes and checkboxes live outside evidence Markdown; exports of the report
+must not silently include those private notes. See `docs/jobscout/actions-and-feedback.md`.

@@ -2,6 +2,11 @@
 
 Backend tests must preserve the runtime invariants they exercise without changing production execution topology.
 
+JobScout workbench tests use synthetic records and temporary SQLite files. Cover
+owner/report isolation, optimistic write conflicts, lost-response idempotency,
+thread cleanup, compact all-page pending items and unchanged recruitment facts.
+Frontend persistence/retry/logout coverage lives in `jobscout-web/test_workbench.py`.
+
 ## Executor starvation tests
 
 `test_executor_starvation.py` covers the deterministic starvation semantics from RFC #4560:

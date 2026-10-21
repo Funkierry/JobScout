@@ -34,12 +34,14 @@ function show(view) {
 // ------------------------------------------------------------------ auth --
 
 let currentUserEmail = null;
+let workbench = null;
 let viewSession = 0;
 const viewVersions = new Map();
 const deletedThreadIds = new Set();
 
 function invalidateSessionViews() {
   viewSession += 1;
+  workbench?.reset();
   viewVersions.clear();
   deletedThreadIds.clear();
 }
@@ -961,6 +963,10 @@ function showTrackerResult(row, message = "刷新完成") {
 
 function showTrackerDetails(row) {
   showTrackerResult(row);
+  const feedback = trackerElement("button", "secondary-btn", "记录识别纠错");
+  feedback.type = "button";
+  feedback.addEventListener("click", () => workbench?.feedback({ category: "correction", application_id: row.id, original: `${row.company} · ${row.role}：${row.raw_status || row.status}` }));
+  $("trackerRecovery").append(feedback);
   $("trackerResultTitle").textContent = "官网识别详情";
   $("trackerResultMessage").textContent = row.check_result && row.check_result !== "成功"
     ? "最近一次官网检查未完成；下方历史状态不能视为本次已确认的进度。请按恢复建议处理。"
@@ -1198,6 +1204,7 @@ async function loadTrackerApplications({ signal } = {}) {
     renderTrackerRows();
     if (currentMode === "tracker" && $("chatStatus")) $("chatStatus").textContent = `${trackerPager.data?.total ?? trackerRows.length} 条投递记录`;
     loadTrackerNotifications().catch(() => {});
+    workbench?.refresh();
   } catch (error) {
     if (current()) {
       trackerPager.reject(); trackerStageFilter = trackerPager.stage;
@@ -1282,6 +1289,7 @@ async function openTrackerNotifications() {
             await apiJson(`/api/jobscout/tracker/notifications/${notice.id}/read`, { method: "POST" });
             read.textContent = "已读";
             await loadTrackerNotifications();
+            workbench?.refresh();
           } catch (error) { read.disabled = false; $("trackerNotificationsStatus").textContent = error.message; }
         });
         card.append(read);
@@ -2211,6 +2219,7 @@ function renderReport(markdown) {
   }
 
   $("chatMessages").appendChild(wrap);
+  if (activeThreadId) workbench?.mountPlan(wrap, activeThreadId, sanitizedMarkdown);
   const container = $("chatMessages");
   if (container && container.scrollHeight - container.scrollTop - container.clientHeight > CHAT_FOLLOW_SLACK) {
     wrap.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
@@ -2463,6 +2472,19 @@ function renderHistoryMessages(messages) {
 // test the pure functions above (markdownToHtml, extractLastVisibleAiText,
 // looksLikeReport, withSkillPrefix) without a real browser.
 if (typeof document !== "undefined") {
+  workbench = globalThis.JobScoutWorkbench.create({ api: apiJson, session: () => viewSession, openItem: async item => {
+    const session = viewSession;
+    const current = beginViewRequest("workbench-action"), recoveryVersion = trackerRecoveryVersion;
+    if (item.kind === "change") return openTrackerNotifications();
+    if (item.opportunity_id) { activateOpportunity(item.opportunity_id); prepareSelectedOpportunity(); return; }
+    const row = await apiJson(`/api/jobscout/tracker/applications/${item.application_id}`);
+    if (session !== viewSession || !current() || currentMode !== "tracker" || recoveryVersion !== trackerRecoveryVersion) return;
+    if (item.kind === "interview") {
+      const opportunity = opportunityForApplication(row.id);
+      if (opportunity) { activateOpportunity(opportunity.id); prepareSelectedOpportunity({ stage: trackerStageLabel(row) }); }
+      else openOpportunityDialog({ company: row.company, role: row.role, action: { kind: "application", applicationId: row.id } });
+    } else showTrackerDetails(row);
+  } });
   $("capabilityCenterLink").href = DEPLOYMENT.capabilityCenterUrl;
   setupAuthForm();
   setupComposer();

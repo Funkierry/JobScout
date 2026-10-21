@@ -34,9 +34,7 @@ def settle(page):
     does not reach view-transition pseudo-elements, so a capture taken
     mid-transition is a blend of two frames.
     """
-    page.wait_for_function(
-        "() => !document.documentElement.dataset.viewTransition"
-    )
+    page.wait_for_function("() => !document.documentElement.dataset.viewTransition")
 
 
 def main():
@@ -54,18 +52,12 @@ def main():
             ).decode("utf-8")
         return (ROOT / name).read_text(encoding="utf-8")
 
-    assets = {
-        name: read_asset(name)
-        for name in ("index.html", "app.js", "runtime-config.js", "style.css")
-    }
+    assets = {name: read_asset(name) for name in ("index.html", "app.js", "runtime-config.js", "style.css")}
     paginated = 'id="trackerPagination"' in assets["index.html"]
-    for name in ("core.js", "tracker-state.js", "api-client.js"):
+    for name in ("core.js", "tracker-state.js", "api-client.js", "workbench.js"):
         if f'src="{name}"' in assets["index.html"]:
             assets[name] = read_asset(name)
-    rows = [
-        {**fixtures()[i % 6], "id": i + 1, "company": f"示例公司 {i + 1:03d}"}
-        for i in range(100)
-    ]
+    rows = [{**fixtures()[i % 6], "id": i + 1, "company": f"示例公司 {i + 1:03d}"} for i in range(100)]
     title = '面试准备 <img src=x onerror="alert(1)">'
     history = [
         {"thread_id": "fixture-one", "status": "idle", "values": {"title": title}},
@@ -134,6 +126,7 @@ def main():
                 "/app.js",
                 "/core.js",
                 "/tracker-state.js",
+                "/workbench.js",
                 "/api-client.js",
                 "/runtime-config.js",
                 "/style.css",
@@ -146,11 +139,16 @@ def main():
                         "app.js": "text/javascript",
                         "core.js": "text/javascript",
                         "tracker-state.js": "text/javascript",
+                        "workbench.js": "text/javascript",
                         "api-client.js": "text/javascript",
                         "runtime-config.js": "text/javascript",
                         "style.css": "text/css",
                     }[name],
                 )
+            elif path == "/api/jobscout/workbench":
+                fulfill({"items": [], "total": 0, "has_more": False})
+            elif path.startswith("/api/jobscout/preparation/"):
+                fulfill({"revision": 0, "done": [], "experience": "", "materials": ""})
             elif path == "/favicon.ico":
                 request_route.fulfill(status=204)
             elif path == "/api/v1/auth/me":
@@ -159,9 +157,7 @@ def main():
                 fulfill(history)
             elif path == "/api/jobscout/opportunities":
                 fulfill(
-                    {"detail": "离线测试：岗位列表暂时不可用"}
-                    if state["target_failure"]
-                    else targets,
+                    {"detail": "离线测试：岗位列表暂时不可用"} if state["target_failure"] else targets,
                     503 if state["target_failure"] else 200,
                 )
             elif path == "/api/jobscout/tracker/stages":
@@ -170,9 +166,7 @@ def main():
                 fulfill(rows)
             elif path == "/api/jobscout/tracker/applications/page":
                 fulfill(
-                    {"detail": "分页读取失败"}
-                    if state.get("page_failure")
-                    else page_payload(rows, url.query),
+                    {"detail": "分页读取失败"} if state.get("page_failure") else page_payload(rows, url.query),
                     503 if state.get("page_failure") else 200,
                 )
             elif path == "/api/jobscout/tracker/notifications":
@@ -180,30 +174,13 @@ def main():
             elif path == "/api/integrations/lark/status":
                 fulfill({"installed": False})
             elif path.startswith("/api/threads/") and path.endswith("/state"):
-                fulfill(
-                    {
-                        "values": {
-                            "messages": [
-                                {"type": "human", "content": "示例面试准备请求"}
-                            ]
-                        }
-                    }
-                )
-            elif (
-                path == "/api/jobscout/threads/fixture-one"
-                and request.method == "DELETE"
-            ):
+                fulfill({"values": {"messages": [{"type": "human", "content": "示例面试准备请求"}]}})
+            elif path == "/api/jobscout/threads/fixture-one" and request.method == "DELETE":
                 state["delete_calls"] += 1
                 if state["delete_status"] != 200:
-                    fulfill(
-                        {"detail": "离线测试：删除暂时不可用"}, state["delete_status"]
-                    )
+                    fulfill({"detail": "离线测试：删除暂时不可用"}, state["delete_status"])
                 else:
-                    history[:] = [
-                        thread
-                        for thread in history
-                        if thread["thread_id"] != "fixture-one"
-                    ]
+                    history[:] = [thread for thread in history if thread["thread_id"] != "fixture-one"]
                     targets[0]["prep_thread_id"] = None
                     fulfill({"deleted": True})
             elif request.method == "PATCH":
@@ -220,9 +197,7 @@ def main():
             page.set_viewport_size({"width": width, "height": height})
             measurements.append(measure(page))
         label = "before" if args.baseline_ref else "after"
-        (output / f"{label}-layout.json").write_text(
-            json.dumps(measurements, indent=2), encoding="utf-8"
-        )
+        (output / f"{label}-layout.json").write_text(json.dumps(measurements, indent=2), encoding="utf-8")
         if args.baseline_ref:
             print(
                 json.dumps(
@@ -238,18 +213,12 @@ def main():
             return
 
         expect(page.locator("#trackerPageLabel")).to_contain_text("第 1 页")
-        first_ids = page.locator('.tracker-row input[aria-label="公司"]').evaluate_all(
-            "nodes => nodes.map(node => node.value)"
-        )
+        first_ids = page.locator('.tracker-row input[aria-label="公司"]').evaluate_all("nodes => nodes.map(node => node.value)")
         page.locator("#trackerNextPage").click()
         expect(page.locator("#trackerPageLabel")).to_contain_text("第 2 页")
         expect(page.locator("#trackerNextPage")).to_be_disabled()
-        second_ids = page.locator('.tracker-row input[aria-label="公司"]').evaluate_all(
-            "nodes => nodes.map(node => node.value)"
-        )
-        assert len(first_ids) == len(second_ids) == 50 and set(first_ids).isdisjoint(
-            second_ids
-        )
+        second_ids = page.locator('.tracker-row input[aria-label="公司"]').evaluate_all("nodes => nodes.map(node => node.value)")
+        assert len(first_ids) == len(second_ids) == 50 and set(first_ids).isdisjoint(second_ids)
         expect(page.locator("#trackerTotalCount")).to_have_text("100")
         page.locator("#trackerPreviousPage").click()
         expect(page.locator("#trackerPageLabel")).to_contain_text("第 1 页")
@@ -266,33 +235,19 @@ def main():
         heading_top = page.locator(".tracker-table th").first.bounding_box()["y"]
         wrap.hover(position={"x": 400, "y": 200})
         page.mouse.wheel(0, 700)
-        page.wait_for_function(
-            "document.querySelector('#trackerTableWrap').scrollTop > 300"
-        )
-        assert (
-            abs(
-                page.locator(".tracker-table th").first.bounding_box()["y"]
-                - heading_top
-            )
-            < 2
-        )
+        page.wait_for_function("document.querySelector('#trackerTableWrap').scrollTop > 300")
+        assert abs(page.locator(".tracker-table th").first.bounding_box()["y"] - heading_top) < 2
         wrap.evaluate("node => node.scrollTop = 0")
         page.locator(".tracker-stage-select").first.hover()
         page.mouse.wheel(0, 500)
-        page.wait_for_function(
-            "document.querySelector('#trackerTableWrap').scrollTop > 100"
-        )
-        assert state["patches"] == 0, (
-            "Wheel scrolling must not modify application stages"
-        )
+        page.wait_for_function("document.querySelector('#trackerTableWrap').scrollTop > 100")
+        assert state["patches"] == 0, "Wheel scrolling must not modify application stages"
         wrap.evaluate("node => node.scrollTop = node.scrollHeight")
         expect(page.locator(".tracker-row").last).to_be_in_viewport()
         wrap.evaluate("node => node.scrollTop = 0")
         wrap.focus()
         page.keyboard.press("PageDown")
-        page.wait_for_function(
-            "document.querySelector('#trackerTableWrap').scrollTop > 100"
-        )
+        page.wait_for_function("document.querySelector('#trackerTableWrap').scrollTop > 100")
         wrap.evaluate("node => node.scrollTop = 0")
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         expect(page.locator("#trackerOverview")).to_be_hidden()
@@ -306,9 +261,7 @@ def main():
         page.locator("#trackerDensityBtn").click()
         wrap.hover(position={"x": 400, "y": 100})
         page.mouse.wheel(0, 700)
-        page.wait_for_function(
-            "document.querySelector('#trackerTableWrap').scrollTop > 100"
-        )
+        page.wait_for_function("document.querySelector('#trackerTableWrap').scrollTop > 100")
         page.locator("#trackerDensityBtn").click()
 
         delete = page.locator(".thread-delete-btn").first
@@ -340,9 +293,7 @@ def main():
         page.locator("#threadDeleteConfirm").click()
         expect(page.locator("#threadDeleteDialog")).to_be_hidden()
         expect(page.locator(".thread-item")).to_have_count(2)
-        expect(page.locator("#threadActionStatus")).to_contain_text(
-            "对话已删除，关联岗位暂未刷新"
-        )
+        expect(page.locator("#threadActionStatus")).to_contain_text("对话已删除，关联岗位暂未刷新")
         assert page.evaluate("activeThreadId") is None
         assert page.evaluate("opportunities[0].prep_thread_id") is None
         assert page.evaluate("opportunities[0].application_ids") == [1]

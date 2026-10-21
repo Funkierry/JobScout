@@ -36,6 +36,7 @@ def main():
                 "/app.js",
                 "/core.js",
                 "/tracker-state.js",
+                "/workbench.js",
                 "/api-client.js",
                 "/runtime-config.js",
                 "/style.css",
@@ -48,6 +49,7 @@ def main():
                         "app.js": "text/javascript",
                         "core.js": "text/javascript",
                         "tracker-state.js": "text/javascript",
+                        "workbench.js": "text/javascript",
                         "api-client.js": "text/javascript",
                         "runtime-config.js": "text/javascript",
                         "style.css": "text/css",
@@ -85,6 +87,10 @@ def main():
                 "/api/jobscout/tracker/notifications",
             ):
                 reply([])
+            elif path == "/api/jobscout/workbench":
+                reply({"items": [], "total": 0, "has_more": False})
+            elif path.startswith("/api/jobscout/preparation/"):
+                reply({"revision": 0, "done": [], "experience": "", "materials": ""})
             elif path == "/favicon.ico":
                 r.fulfill(status=204)
             else:
@@ -100,10 +106,7 @@ def main():
         page.locator("#authSubmit").click()
         expect(page.locator("#chatView")).to_be_visible()
         assert writes == ["/api/v1/auth/initialize"]
-        assert (
-            page.locator("#capabilityCenterLink").get_attribute("href")
-            == "/workspace/capabilities"
-        )
+        assert page.locator("#capabilityCenterLink").get_attribute("href") == "/workspace/capabilities"
         page.locator("#logoutBtn").click()
         expect(page.locator("#authTitle")).to_have_text("登录你的求职工作台")
         expect(page.locator("#authToggle")).to_be_hidden()
@@ -123,9 +126,7 @@ def main():
         assert len(writes) == 2
         assert not unexpected and not errors, (unexpected, errors)
         browser.close()
-        print(
-            "PASS: HTTPS same-origin, administrator setup, closed registration, login/logout and connection retry"
-        )
+        print("PASS: HTTPS same-origin, administrator setup, closed registration, login/logout and connection retry")
 
 
 if __name__ == "__main__":

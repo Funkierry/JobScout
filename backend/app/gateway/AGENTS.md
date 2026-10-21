@@ -1,8 +1,8 @@
 ### Gateway API (`app/gateway/`)
 
-JobScout (`assistant_id=jobscout`) classifies before loading models/tools. Strip client `jobscout_anchor`, `jobscout_decision` and route/evidence stamps from run/state inputs. Reserved `jobscout_entry_version=3` binds legacy threads after admission; reads/branches use the effective factory. `JOBSCOUT_ENFORCE_THREAD_BINDING=1` prevents assistant changes bypassing binding; lookup failures return 503. Default behavior is unchanged. Ownership precedes lookup; failed admission preserves binding. See `docs/jobscout/entry-routing.md`. JobScout store initialization must await `_get_tracker_store()` off-loop; cancellation/cleanup contracts live in tracker `AGENTS.md`.
+JobScout classifies before model/tool assembly. Strip client anchor, decision and route/evidence stamps. Entry version 3 binds legacy threads after admission; reads/branches use the effective factory. Strict `JOBSCOUT_ENFORCE_THREAD_BINDING=1` rejects binding bypasses; lookup failures return 503. Check ownership first; failed admission preserves binding. See `docs/jobscout/entry-routing.md`. Await `_get_tracker_store()` off-loop. Prep notes require owned, non-deleting threads; feedback checks application ownership in its write transaction. Retain `runs:read/create`; notes are user input, never verified evidence. Tracker `AGENTS.md` owns persistence/cancellation contracts.
 
-JobScout deletion wraps native deletion with owner/run checks. Verify ownership before recording retry authority; clear links/candidates/snapshots only after metadata disappears. Preserve targets/applications; see tracker `AGENTS.md` and `test_jobscout_thread_delete.py`.
+JobScout deletion checks owner/runs before recording retry authority; clear links/candidates/snapshots only after metadata disappears. Preserve targets/applications; see tracker guidance and `test_jobscout_thread_delete.py`.
 
 Memory shutdown resolves hot-reloaded config and the backend, flushes, then
 closes as one `await_drained` operation. Keep config resolution inside the

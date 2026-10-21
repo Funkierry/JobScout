@@ -38,6 +38,7 @@ from app.application_tracker.update_service import (
     RefreshOutcome,
     TrackerUpdateService,
 )
+from app.application_tracker.workbench import FeedbackInput, PlanInput, WorkbenchStore, WriteConflict
 from app.gateway.authz import require_permission
 from app.gateway.deps import get_config, get_thread_store
 from app.gateway.jobscout_base import JobScoutBaseError, load_job_base_context, validate_base_url
@@ -73,6 +74,67 @@ async def _get_tracker_store() -> ApplicationTrackerStore:
 
 def _new_tracker_agent() -> ApplicationTrackerAgent:
     return ApplicationTrackerAgent.from_model_name()
+
+
+@router.get("/workbench")
+@require_permission("runs", "read")
+async def workbench_pending(request: Request, limit: int = Query(6, ge=1, le=50), offset: int = Query(0, ge=0, le=100000)) -> dict:
+    return await asyncio.to_thread(WorkbenchStore(await _get_tracker_store()).pending, get_effective_user_id(), limit=limit, offset=offset)
+
+
+async def _owned_workbench_thread(request, thread_id):
+    if await get_thread_store(request).get(thread_id, user_id=get_effective_user_id()) is None:
+        raise HTTPException(404, "Thread was not found")
+    store = await _get_tracker_store()
+    if await asyncio.to_thread(store.thread_deletion_pending, get_effective_user_id(), thread_id):
+        raise HTTPException(409, "Thread deletion is pending")
+    return WorkbenchStore(store)
+
+
+@router.get("/preparation/{thread_id}")
+@require_permission("runs", "read")
+async def get_preparation(thread_id: ThreadId, request: Request, report_key: str = Query(pattern=r"^[a-f0-9]{64}$")) -> dict:
+    store = await _owned_workbench_thread(request, thread_id)
+    return await asyncio.to_thread(store.plan, get_effective_user_id(), thread_id, report_key)
+
+
+@router.put("/preparation/{thread_id}")
+@require_permission("runs", "create")
+async def save_preparation(thread_id: ThreadId, body: PlanInput, request: Request, report_key: str = Query(pattern=r"^[a-f0-9]{64}$")) -> dict:
+    store = await _owned_workbench_thread(request, thread_id)
+    try:
+        return await asyncio.to_thread(store.save_plan, get_effective_user_id(), thread_id, report_key, body)
+    except WriteConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/feedback")
+@require_permission("runs", "read")
+async def get_workbench_feedback(request: Request) -> list[dict]:
+    return await asyncio.to_thread(WorkbenchStore(await _get_tracker_store()).feedback, get_effective_user_id())
+
+
+@router.post("/feedback")
+@require_permission("runs", "create")
+async def add_workbench_feedback(body: FeedbackInput, request: Request) -> dict:
+    if body.thread_id:
+        await _owned_workbench_thread(request, body.thread_id)
+    store = await _get_tracker_store()
+    try:
+        return await asyncio.to_thread(WorkbenchStore(store).add_feedback, get_effective_user_id(), body)
+    except WriteConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(404, "Application was not found") from exc
+
+
+@router.get("/tracker/applications/{application_id:int}", response_model=StoredApplication)
+@require_permission("runs", "read")
+async def get_tracker_application(application_id: int, request: Request) -> StoredApplication:
+    row = await asyncio.to_thread((await _get_tracker_store()).get_application, get_effective_user_id(), application_id)
+    if row is None:
+        raise HTTPException(404, "Application was not found")
+    return row
 
 
 class TrackerRefreshResponse(BaseModel):
