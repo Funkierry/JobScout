@@ -137,7 +137,7 @@ jobs:
           assert {v['target'] for v in services['gateway']['volumes']} == {'/config/config.yaml', '/config/extensions_config.json', '/data'}
           assert {v['target'] for v in services['nginx']['volumes']} == {'/usr/share/nginx/jobscout/runtime-config.js'}
           deploy.compose(directory, ['exec', '-T', 'gateway', '/app/backend/.venv/bin/python', '-c', "from pathlib import Path; assert list(Path('/app/skills/public').glob('*/SKILL.md'))"], check=True)
-          for name in ('core', 'api-client', 'tracker-state'):
+          for name in ('core', 'api-client', 'tracker-state', 'workbench'):
               response = urllib.request.urlopen('http://127.0.0.1:2026/' + name + '.js')
               assert response.status == 200 and 'javascript' in response.headers['Content-Type']
           print('Packaged assets and public skills ready; no application source bind mounts')

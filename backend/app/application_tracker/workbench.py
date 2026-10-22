@@ -52,6 +52,8 @@ class FeedbackInput(BaseModel):
     reason: str = Field(min_length=1, max_length=1500)
     next_check: str = Field(default="", max_length=1500)
     outcome: Literal["accepted", "rejected", "completed", "blocked", "unspecified"] = "unspecified"
+    followup_of: int | None = Field(default=None, ge=1, le=2**63 - 1)
+    verification: Literal["not_checked", "passed", "failed"] = "not_checked"
 
     @model_validator(mode="after")
     def single_context(self):
@@ -59,6 +61,8 @@ class FeedbackInput(BaseModel):
             raise ValueError("Feedback has one resource context")
         if self.report_key and not self.thread_id:
             raise ValueError("Report feedback requires a thread")
+        if self.verification != "not_checked" and (not self.followup_of or not self.correction):
+            raise ValueError("Verification requires an original feedback record and actual result")
         return self
 
 
@@ -77,7 +81,7 @@ def pending_application(row, *, changed=False):
         kind, title, hint = "login", "恢复招聘账号登录", "打开识别详情，按处理建议登录后重新检查。"
     elif changed:
         kind, title, hint = "change", "查看新的进度变化", "有未读的已确认变化，请核对通知依据。"
-    elif stage in {"测评", "笔试", "一面", "二面", "三面", "HR面", "面试（轮次待确认）"}:
+    elif stage in {"测评", "笔试", "一面", "二面", "三面", "HR面", "面试（轮次待确认）"} and (row.get("stage_manual") or mail or (row.get("checked_at") and row.get("confidence", 0) >= 0.7 and row.get("check_result") != "抓取失败")):
         kind, title, hint = "interview", "准备下一轮", f"当前阶段：{stage}。先核对具体安排，再整理相关经历。"
     elif status in {"未知", "进行中·具体阶段未知"} or row.get("check_result") == "抓取失败" or not row.get("checked_at") or (not mail and row.get("confidence", 0) < 0.7):
         kind, title, hint = "evidence", "补充或核对状态依据", "信息尚不足；查看原文和查询链接，不推定招聘阶段。"
@@ -113,9 +117,14 @@ class WorkbenchStore:
             )
         return {**json.loads(payload), "revision": revision}
 
-    def feedback(self, user_id):
+    def feedback(self, user_id, *, limit=50, before=None):
         with self.tracker._connect() as connection:
-            rows = connection.execute("SELECT * FROM jobscout_feedback WHERE user_id=? ORDER BY id DESC LIMIT 50", (self.tracker._validated_user_id(user_id),)).fetchall()
+            query = "SELECT * FROM jobscout_feedback WHERE user_id=?"
+            params = [self.tracker._validated_user_id(user_id)]
+            if before is not None:
+                query += " AND id<?"
+                params.append(before)
+            rows = connection.execute(query + " ORDER BY id DESC LIMIT ?", [*params, limit]).fetchall()
         return [{**json.loads(row["payload"]), "id": row["id"], "created_at": row["created_at"]} for row in rows]
 
     def add_feedback(self, user_id, body: FeedbackInput):
@@ -125,9 +134,18 @@ class WorkbenchStore:
             connection.execute("BEGIN IMMEDIATE")
             if body.application_id and not connection.execute("SELECT 1 FROM applications WHERE user_id=? AND id=?", (user_id, body.application_id)).fetchone():
                 raise ValueError("Application was not found")
+            if body.followup_of:
+                parent = connection.execute("SELECT payload FROM jobscout_feedback WHERE user_id=? AND id=?", (user_id, body.followup_of)).fetchone()
+                if not parent:
+                    raise ValueError("Feedback was not found")
+                original = FeedbackInput.model_validate_json(parent["payload"])
+                if (body.thread_id, body.application_id, body.report_key) != (original.thread_id, original.application_id, original.report_key):
+                    raise ValueError("Feedback context does not match")
             row = connection.execute("SELECT * FROM jobscout_feedback WHERE user_id=? AND request_id=?", (user_id, body.request_id)).fetchone()
             if row:
-                if row["payload"] != payload:
+                # Older records omit newer optional fields. Compare canonical
+                # inputs so an upgrade does not break a lost-response retry.
+                if FeedbackInput.model_validate_json(row["payload"]) != body:
                     raise WriteConflict("同一次反馈已保存其他内容，请新建反馈。")
                 return {**json.loads(row["payload"]), "id": row["id"], "created_at": row["created_at"]}
             stamp = datetime.now(UTC).isoformat()

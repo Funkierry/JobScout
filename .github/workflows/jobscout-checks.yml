@@ -45,6 +45,9 @@ jobs:
           backend/.venv/bin/python jobscout-web/test_history_scroll.py
           backend/.venv/bin/python jobscout-web/test_concurrency.py
           backend/.venv/bin/python jobscout-web/test_workbench.py
+      - name: UI to API to SQLite journey (synthetic identity and reports)
+        working-directory: backend
+        run: uv run --no-sync python scripts/jobscout_offline_tests.py --test ../jobscout-web/test_journey.py --junitxml ../local_eval/ci/journey.xml
       - name: Skill and evidence-grader regressions (synthetic fixtures only)
         run: backend/.venv/bin/python -B -m unittest discover -s skills/public/jobscout/scripts -p 'test_*.py'
       - uses: actions/upload-artifact@v4

@@ -2,7 +2,7 @@
 
 JobScout classifies before model/tool assembly. Strip client anchor, decision and route/evidence stamps. Entry version 3 binds legacy threads after admission; reads/branches use the effective factory. Strict `JOBSCOUT_ENFORCE_THREAD_BINDING=1` rejects binding bypasses; lookup failures return 503. Check ownership first; failed admission preserves binding. See `docs/jobscout/entry-routing.md`. Await `_get_tracker_store()` off-loop. Prep notes require owned, non-deleting threads; feedback checks application ownership in its write transaction. Retain `runs:read/create`; notes are user input, never verified evidence. Tracker `AGENTS.md` owns persistence/cancellation contracts.
 
-JobScout deletion checks owner/runs before recording retry authority; clear links/candidates/snapshots only after metadata disappears. Preserve targets/applications; see tracker guidance and `test_jobscout_thread_delete.py`.
+JobScout deletion checks ownership before retry authority; clear thread data after metadata disappears. Preserve targets/applications. Feedback cursors are bounded; follow-up context is checked in the write transaction. See tracker guidance.
 
 Memory shutdown resolves hot-reloaded config and the backend, flushes, then
 closes as one `await_drained` operation. Keep config resolution inside the

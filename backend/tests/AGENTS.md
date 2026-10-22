@@ -6,6 +6,9 @@ JobScout workbench tests use synthetic records and temporary SQLite files. Cover
 owner/report isolation, optimistic write conflicts, lost-response idempotency,
 thread cleanup, compact all-page pending items and unchanged recruitment facts.
 Frontend persistence/retry/logout coverage lives in `jobscout-web/test_workbench.py`.
+`jobscout-web/test_journey.py` runs separately under the offline runner with a
+browser: intercepted requests dispatch to production FastAPI routes and temporary
+SQLite. Identity/history are fixtures; do not claim live auth or model evaluation.
 
 ## Executor starvation tests
 

@@ -1405,6 +1405,8 @@ input.tracker-inline-input:focus { border-color: var(--blue); background: var(--
 .workbench-item { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; border: 1px solid var(--line); border-radius: var(--radius-xs); padding: 12px; min-width: 0; }
 .workbench-item > div { min-width: 0; overflow-wrap: anywhere; }
 .workbench-item button { flex-shrink: 0; }
+.workbench-dialog .workbench-item { flex-wrap: wrap; gap: 8px; }
+.workbench-dialog .workbench-item > div { flex: 1 1 320px; }
 .workbench-pending .secondary-btn, .workbench-dialog .secondary-btn, .preparation-actions .secondary-btn { appearance: none; border: 1px solid var(--line-strong); border-radius: var(--radius-xs); padding: 8px 12px; background: var(--panel); color: var(--ink-soft); font: inherit; font-size: 12px; line-height: 1.4; cursor: pointer; }
 .workbench-pending .secondary-btn:hover, .workbench-dialog .secondary-btn:hover, .preparation-actions .secondary-btn:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
 .workbench-pending button:focus-visible, .workbench-dialog button:focus-visible, .preparation-actions button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
@@ -1417,6 +1419,7 @@ input.tracker-inline-input:focus { border-color: var(--blue); background: var(--
 .workbench-dialog { width: min(640px, calc(100vw - 24px)); max-height: 88vh; overflow: auto; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); color: var(--ink); box-shadow: var(--shadow-lg); }
 .workbench-form { display: grid; gap: 12px; margin: 16px 0; }
 .workbench-form label { display: grid; gap: 6px; font-size: 13px; }
+.workbench-form select { width: 100%; min-width: 0; min-height: 38px; border: 1px solid var(--line-strong); border-radius: var(--radius-xs); padding: 8px; color: var(--ink); background: var(--panel); font: inherit; }
 .workbench-form textarea { width: 100%; min-width: 0; resize: vertical; border: 1px solid var(--line-strong); border-radius: var(--radius-xs); padding: 10px; color: var(--ink); background: var(--panel); font: inherit; }
 .workbench-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 12px; }
 .workbench-form .preparation-check { display: flex; align-items: center; }

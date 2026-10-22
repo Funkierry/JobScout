@@ -110,8 +110,8 @@ async def save_preparation(thread_id: ThreadId, body: PlanInput, request: Reques
 
 @router.get("/feedback")
 @require_permission("runs", "read")
-async def get_workbench_feedback(request: Request) -> list[dict]:
-    return await asyncio.to_thread(WorkbenchStore(await _get_tracker_store()).feedback, get_effective_user_id())
+async def get_workbench_feedback(request: Request, limit: int = Query(50, ge=1, le=50), before: int | None = Query(None, ge=1, le=2**63 - 1)) -> list[dict]:
+    return await asyncio.to_thread(WorkbenchStore(await _get_tracker_store()).feedback, get_effective_user_id(), limit=limit, before=before)
 
 
 @router.post("/feedback")
@@ -125,7 +125,7 @@ async def add_workbench_feedback(body: FeedbackInput, request: Request) -> dict:
     except WriteConflict as exc:
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(404, "Application was not found") from exc
+        raise HTTPException(404, "Feedback context was not found") from exc
 
 
 @router.get("/tracker/applications/{application_id:int}", response_model=StoredApplication)

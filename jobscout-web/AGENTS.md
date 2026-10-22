@@ -92,3 +92,9 @@ Keep notes out of report print/download. Failed writes retain inputs; stale read
 and writes must not restore content after logout, navigation or dialog replacement.
 Scope workbench button styles explicitly; legacy tracker button selectors do not
 cover the new pending/feedback/preparation containers. Check the deployed screenshot.
+Feedback history uses ID cursors and preserves loaded rows on older-page failure.
+Keep export counts explicit and disabled before a successful nonempty read. Append
+linked, user-reported rechecks without editing the original. Run `test_journey.py`
+via the backend offline runner; CI installs Chromium. Its browser intercepts
+dispatch JobScout calls to production routes with synthetic auth/history and a
+temporary database. Keep this separate from real user/model quality measurements.

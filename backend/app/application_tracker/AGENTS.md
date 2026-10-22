@@ -7,6 +7,11 @@ promote them to observed evidence. Plans bind owner/thread/report digest, use
 revision compare-and-swap and idempotent retries. Feedback request IDs deduplicate
 lost responses. Thread cleanup removes its notes/feedback transactionally. Keep
 owner isolation, unchanged source rows, pagination and restart coverage offline.
+Feedback uses descending ID cursors; follow-ups are append-only, owner-scoped,
+and must retain the original thread/application/report context. Verification is
+user-reported, never a system quality grade. Canonicalize legacy payload defaults
+before comparing retries. Unreliable portal interview states require review;
+preserve explicit manual stages and independently accepted mail observations.
 
 `pagination.py` returns owner-scoped cursor pages: only page rows load full evidence;
 global summaries scan compact state. Reuse MailStore resolution for mail conflicts
