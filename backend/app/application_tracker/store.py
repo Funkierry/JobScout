@@ -701,9 +701,10 @@ class ApplicationTrackerStore:
             had_baseline = successful_check is not None
             successful = record.check_result is CheckResult.SUCCESS
             old_status = ApplicationStatus(row["status"]) if had_baseline else None
-            discovered = {item.role: item for item in record.discovered_applications}
+            from app.application_tracker.roles import application_page_url, role_key, select_role
+
             primary_role = record.detected_role if record.detected_role and not row["role_confirmed"] else row["role"]
-            primary_discovery = discovered.get(primary_role)
+            primary_discovery = select_role(record.discovered_applications, primary_role)
             detected_status = primary_discovery.status if primary_discovery else record.status
             status_changed = bool(successful and had_baseline and old_status != detected_status)
 
@@ -792,7 +793,7 @@ class ApplicationTrackerStore:
             if successful:
                 replacement_id: int | None = None
                 for item in record.discovered_applications:
-                    if item.role in {primary_role, "待识别岗位"}:
+                    if item is primary_discovery or item.role in {primary_role, "待识别岗位"}:
                         continue
                     parts = urlsplit(record.url)
                     base_fragment = "&".join(part for part in parts.fragment.split("&") if not part.startswith("jobscout-role="))
@@ -804,6 +805,18 @@ class ApplicationTrackerStore:
                         "SELECT id FROM applications WHERE user_id = ? AND url = ?",
                         (user_id, role_url),
                     ).fetchone()
+                    if existing is None:
+                        if sum(role_key(other.role) == role_key(item.role) for other in record.discovered_applications) > 1:
+                            continue
+                        aliases = [
+                            candidate
+                            for candidate in connection.execute("SELECT id, role, url FROM applications WHERE user_id = ? AND company = ?", (user_id, row["company"]))
+                            if role_key(candidate["role"]) == role_key(item.role) and application_page_url(candidate["url"]) == application_page_url(role_url)
+                        ]
+                        # Never pick one of several same-title applications.
+                        if len(aliases) > 1:
+                            continue
+                        existing = aliases[0] if aliases else None
                     now = datetime.now(UTC).isoformat()
                     if existing is None:
                         connection.execute(

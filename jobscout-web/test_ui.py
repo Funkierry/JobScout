@@ -82,13 +82,21 @@ def page_payload(rows, query=""):
     for row in rows:
         label = row.get("stage") or row["status"]
         counts[label] = counts.get(label, 0) + 1
-        if row["status"] in {"未知", "进行中·具体阶段未知"} or row.get("check_result") != "成功" or row.get("confidence", 1) < 0.7:
+        if (
+            row["status"] in {"未知", "进行中·具体阶段未知"}
+            or row.get("check_result") != "成功"
+            or row.get("confidence", 1) < 0.7
+        ):
             summary["review"] += 1
         elif row["status"] == "Offer":
             summary["offers"] += 1
         elif row["status"] not in {"未通过", "流程终止"}:
             summary["active"] += 1
-    filtered = [row for row in sorted(rows, key=lambda row: row["id"], reverse=True) if stage is None or (row.get("stage") or row["status"]) == stage]
+    filtered = [
+        row
+        for row in sorted(rows, key=lambda row: row["id"], reverse=True)
+        if stage is None or (row.get("stage") or row["status"]) == stage
+    ]
     eligible = [row for row in filtered if row["id"] < before]
     items = eligible[:limit]
     more = len(eligible) > limit
@@ -149,7 +157,9 @@ def comparison_fixture():
                     "requirement_quote": r["要求"],
                     "matched_term": "Python",
                     "resume_file": "fixture.md",
-                    "resume_quote": "了解 Python" if r["record_id"] == "limited" else "熟悉 Python",
+                    "resume_quote": "了解 Python"
+                    if r["record_id"] == "limited"
+                    else "熟悉 Python",
                 }
             ],
         }
@@ -163,7 +173,12 @@ def comparison_fixture():
         excluded=excluded,
         audit=audit,
     )
-    return render_matches(matches, SimpleNamespace(records=records, base_bounds={}), excluded=excluded, rejection_counts=audit)
+    return render_matches(
+        matches,
+        SimpleNamespace(records=records, base_bounds={}),
+        excluded=excluded,
+        rejection_counts=audit,
+    )
 
 
 def main():
@@ -224,7 +239,10 @@ def main():
             elif request.method == "OPTIONS":
                 fulfill({})
             elif path == "/__fixture_print__":
-                request_route.fulfill(content_type="text/html", body="<!doctype html><title>Print fixture</title>")
+                request_route.fulfill(
+                    content_type="text/html",
+                    body="<!doctype html><title>Print fixture</title>",
+                )
             elif path in [
                 "/",
                 "/index.html",
@@ -275,7 +293,9 @@ def main():
                 fulfill(STAGES)
             elif path == "/api/jobscout/tracker/applications/page":
                 fulfill(
-                    {"detail": "离线测试：暂时无法读取记录"} if state["failure"] else page_payload(rows, url.query),
+                    {"detail": "离线测试：暂时无法读取记录"}
+                    if state["failure"]
+                    else page_payload(rows, url.query),
                     503 if state["failure"] else 200,
                 )
             elif path == "/api/jobscout/tracker/import":
@@ -287,7 +307,10 @@ def main():
                 assert request.method == "POST"
                 state["recovery_refreshes"] = state.get("recovery_refreshes", 0) + 1
                 fulfill({"application": rows[5], "skipped": False})
-            elif path == "/api/jobscout/tracker/applications/6" and request.method == "PATCH":
+            elif (
+                path == "/api/jobscout/tracker/applications/6"
+                and request.method == "PATCH"
+            ):
                 assert set(request.post_data_json) == {"url"}
                 state["link_updates"] = state.get("link_updates", 0) + 1
                 if state.get("hold_link"):
@@ -360,20 +383,28 @@ def main():
             page.evaluate("loadTrackerApplications()")
             expect(page.locator("#trackerActiveCount")).to_have_text("3")
             expect(page.locator("#trackerReviewCount")).to_have_text("2")
-            page.locator(".tracker-filter-tag").filter(has_text="进行中·具体阶段未知").click()
+            page.locator(".tracker-filter-tag").filter(
+                has_text="进行中·具体阶段未知"
+            ).click()
             expect(page.locator(".tracker-row")).to_have_count(1)
             expect(page.locator(".tracker-row")).to_contain_text("阶段未明确，暂不计算")
             page.locator(".tracker-status-detail").click()
-            expect(page.locator("#trackerResultConfidence")).to_have_text("已有进度原文 · 阶段未明确")
+            expect(page.locator("#trackerResultConfidence")).to_have_text(
+                "已有进度原文 · 阶段未明确"
+            )
             assert "%" not in page.locator("#trackerResultDialog").inner_text()
             settle(page)
             expect(page.locator("#trackerResultDialog")).to_have_css("opacity", "1")
-            page.screenshot(path=str(output / "phase1-generic-detail.png"), animations="disabled")
+            page.screenshot(
+                path=str(output / "phase1-generic-detail.png"), animations="disabled"
+            )
             page.keyboard.press("Escape")
             page.set_viewport_size({"width": 390, "height": 844})
             page.locator(".tracker-row").first.scroll_into_view_if_needed()
             settle(page)
-            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+            assert page.evaluate(
+                "document.documentElement.scrollWidth <= window.innerWidth"
+            )
             page.screenshot(
                 path=str(output / "phase1-generic-mobile.png"),
                 full_page=True,
@@ -407,20 +438,32 @@ def main():
             page.get_by_role("button", name="保存查询链接", exact=True).click()
             expect(page.locator("#trackerRecovery")).to_contain_text("HTTP(S)")
             assert state.get("link_updates", 0) == 0
-            page.get_by_label("申请查询链接", exact=True).fill("https://careers.example.com/applications/6")
+            page.get_by_label("申请查询链接", exact=True).fill(
+                "https://careers.example.com/applications/6"
+            )
             state["link_failure"] = True
             page.get_by_role("button", name="保存查询链接", exact=True).click()
             expect(page.locator("#trackerRecovery")).to_contain_text("链接保存失败")
-            expect(page.get_by_role("button", name="保存查询链接", exact=True)).to_be_enabled()
+            expect(
+                page.get_by_role("button", name="保存查询链接", exact=True)
+            ).to_be_enabled()
             state["link_failure"] = False
             page.get_by_role("button", name="保存查询链接", exact=True).click()
-            expect(page.locator("#trackerResultSource")).to_have_attribute("href", "https://careers.example.com/applications/6")
+            expect(page.locator("#trackerResultSource")).to_have_attribute(
+                "href", "https://careers.example.com/applications/6"
+            )
             assert state["link_updates"] == 2 and len(rows) == 6
             settle(page)
-            page.screenshot(path=str(output / "phase2-recovery-desktop.png"), animations="disabled")
+            page.screenshot(
+                path=str(output / "phase2-recovery-desktop.png"), animations="disabled"
+            )
             page.set_viewport_size({"width": 390, "height": 844})
-            assert page.locator("#trackerResultDialog").evaluate("el => el.scrollWidth <= el.clientWidth")
-            page.screenshot(path=str(output / "phase2-recovery-mobile.png"), animations="disabled")
+            assert page.locator("#trackerResultDialog").evaluate(
+                "el => el.scrollWidth <= el.clientWidth"
+            )
+            page.screenshot(
+                path=str(output / "phase2-recovery-mobile.png"), animations="disabled"
+            )
             page.keyboard.press("Escape")
             page.set_viewport_size({"width": 1440, "height": 1000})
             page.get_by_role(
@@ -430,11 +473,17 @@ def main():
             ).click()
             page.get_by_role("button", name="修改查询链接", exact=True).click()
             state["hold_link"] = True
-            page.get_by_label("申请查询链接", exact=True).fill("https://careers.example.com/applications/6?tab=current")
+            page.get_by_label("申请查询链接", exact=True).fill(
+                "https://careers.example.com/applications/6?tab=current"
+            )
             page.get_by_role("button", name="保存查询链接", exact=True).click()
-            expect(page.get_by_role("button", name="保存查询链接", exact=True)).to_be_disabled()
+            expect(
+                page.get_by_role("button", name="保存查询链接", exact=True)
+            ).to_be_disabled()
             page.keyboard.press("Escape")
-            page.get_by_role("button", name="查看 远山科技 后端开发工程师 的页面识别依据", exact=True).click()
+            page.get_by_role(
+                "button", name="查看 远山科技 后端开发工程师 的页面识别依据", exact=True
+            ).click()
             state["pending_link"].fulfill(
                 status=200,
                 content_type="application/json",
@@ -464,7 +513,9 @@ def main():
             page.locator(".tracker-filter-tag").filter(has_text="全部").click()
             page.locator(".tracker-status-detail").last.click()
             expect(page.locator("#trackerResultDialog")).to_be_visible()
-            expect(page.locator("#trackerResultEvidence")).to_contain_text("后端开发工程师")
+            expect(page.locator("#trackerResultEvidence")).to_contain_text(
+                "后端开发工程师"
+            )
             page.keyboard.press("Escape")
             page.locator("#trackerScheduleBtn").click()
             expect(page.locator("#trackerScheduleSave")).to_be_enabled()
@@ -472,7 +523,10 @@ def main():
             page.locator("#trackerScheduleInterval").fill("120")
             page.locator("#trackerScheduleSave").click()
             expect(page.locator("#trackerScheduleStatus")).to_have_text("设置已保存。")
-            assert mutations[-1]["interval_minutes"] == 120 and not mutations[-1]["allow_model_fallback"]
+            assert (
+                mutations[-1]["interval_minutes"] == 120
+                and not mutations[-1]["allow_model_fallback"]
+            )
             page.keyboard.press("Escape")
             page.locator("#trackerNotificationsBtn").click()
             page.get_by_role("button", name="标为已读", exact=True).click()
@@ -498,7 +552,7 @@ def main():
                 "report => renderHistoryMessages(["
                 "{type:'human',content:'合成岗位匹配',additional_kwargs:{jobscout_mode:'match'}},"
                 "{type:'ai',content:report,additional_kwargs:{jobscout_evidence:"
-                "{version:2,mode:'base_match',match_contract_version:1,run_id:'synthetic',accepted_count:1,removed_count:0}}}])",
+                "{version:2,mode:'base_match',match_contract_version:2,run_id:'synthetic',accepted_count:1,removed_count:0}}}])",
                 report,
             )
             assert page.evaluate(
@@ -511,25 +565,35 @@ def main():
             expect(page.locator(".report-doc")).to_contain_text("待确认")
             settle(page)
             with page.expect_download() as download:
-                page.get_by_role("button", name="下载 Markdown 文件", exact=True).click()
+                page.get_by_role(
+                    "button", name="下载 Markdown 文件", exact=True
+                ).click()
             exported = Path(download.value.path()).read_text(encoding="utf-8")
             assert "支持有限" in exported and "明确不满足" in exported
             with context.expect_page() as popup:
                 page.get_by_role("button", name="打印 / 导出为 PDF", exact=True).click()
             print_page = popup.value
             expect(print_page.locator(".report-doc-print")).to_contain_text("支持有限")
-            expect(print_page.locator(".report-doc-print")).to_contain_text("明确不满足")
+            expect(print_page.locator(".report-doc-print")).to_contain_text(
+                "明确不满足"
+            )
             # Inspect the actual popup content, then render that same HTML in a
             # navigated fixture frame: intercepted about:blank CSS stalls in Chromium.
             print_html = print_page.content()
             print_page.goto("http://localhost:5500/__fixture_print__")
             print_page.set_content(print_html, wait_until="load")
             print_page.emulate_media(media="print")
-            expect(print_page.locator(".report-doc-print h1")).to_have_css("break-after", "avoid")
-            print_page.locator(".report-doc-print").screenshot(path=str(output / "phase2-requirements.png"), animations="disabled")
+            expect(print_page.locator(".report-doc-print h1")).to_have_css(
+                "break-after", "avoid"
+            )
+            print_page.locator(".report-doc-print").screenshot(
+                path=str(output / "phase2-requirements.png"), animations="disabled"
+            )
             print_page.close()
             page.set_viewport_size({"width": 390, "height": 844})
-            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+            assert page.evaluate(
+                "document.documentElement.scrollWidth <= window.innerWidth"
+            )
             page.set_viewport_size({"width": 1440, "height": 1000})
             page.locator("#sidebarTrackerBtn").click()
             page.keyboard.press("Control+k")
@@ -544,7 +608,9 @@ def main():
             animations="disabled",
         )
         if not args.capture_only:
-            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+            assert page.evaluate(
+                "document.documentElement.scrollWidth <= window.innerWidth"
+            )
             page.locator("#sidebarToggle").click()
             expect(page.locator("#sidebarTrackerBtn")).to_be_visible()
             page.locator("#sidebarCloseBtn").click()
@@ -583,7 +649,9 @@ def main():
         )
         page.set_viewport_size({"width": 390, "height": 844})
         expect(page.locator("#authSubmit")).to_be_visible()
-        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        assert page.evaluate(
+            "document.documentElement.scrollWidth <= window.innerWidth"
+        )
         settle(page)
         page.screenshot(
             path=str(output / f"{args.label}-login-mobile.png"),
@@ -593,7 +661,9 @@ def main():
         assert not unexpected, unexpected
         assert not errors, errors
         browser.close()
-    print("PASS: fixture browser checks; all requests intercepted; no real account, website, mailbox or model used")
+    print(
+        "PASS: fixture browser checks; all requests intercepted; no real account, website, mailbox or model used"
+    )
 
 
 if __name__ == "__main__":

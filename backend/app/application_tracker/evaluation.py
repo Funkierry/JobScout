@@ -169,7 +169,9 @@ def evaluate_cases(
         selected_application = None
         if record and record.discovered_applications:
             target_role = case.expected_role if case.role == "待识别岗位" else case.role
-            selected_application = next((item for item in record.discovered_applications if item.role == target_role), None)
+            from app.application_tracker.roles import select_role
+
+            selected_application = select_role(record.discovered_applications, target_role)
         if record is None:
             predicted_status = None
             evidence = ""

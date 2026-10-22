@@ -70,7 +70,8 @@ asserts résumé screening, and has no inferred stage duration. Keep manual stag
 behavior and server/client count parity. `trackerEvidenceLabel` replaces numeric
 confidence percentages for portal and mail displays. Matching history, live
 rendering, print and download additionally require the server's
-`match_contract_version=1`; older reports prompt regeneration. Preserve explicit
+`match_contract_version=2`; v1 and older reports prompt regeneration after the
+term-context scoring fix. Preserve explicit
 zero-recommendation results and distinguish evidence scores from probabilities.
 
 `trackerRecovery` uses stored portal outcomes even when mail supplies the displayed

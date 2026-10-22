@@ -250,7 +250,7 @@
     if (
       stamp?.version === 2 &&
       stamp.mode === (mode === "match" ? "base_match" : "interview_prep") &&
-      (mode !== "match" || stamp.match_contract_version === 1) &&
+      (mode !== "match" || stamp.match_contract_version === 2) &&
       typeof stamp.run_id === "string" &&
       stamp.run_id &&
       Number.isInteger(stamp.accepted_count) &&

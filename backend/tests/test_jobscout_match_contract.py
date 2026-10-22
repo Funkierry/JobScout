@@ -45,6 +45,17 @@ def test_valid_pair_keeps_both_original_spans_and_does_not_trust_total():
     assert checked["matched_term"] == "Python"
 
 
+def test_actual_upload_virtual_path_is_the_same_authorized_resume():
+    rows = score([evidence(resume_file="/mnt/user-data/uploads/resume.md")])
+    assert rows[0]["total"] == 30
+    assert rows[0]["score_items"][1]["resume_file"] == "resume.md"
+
+
+@pytest.mark.parametrize("filename", ["/tmp/resume.md", "/mnt/user-data/uploads/../resume.md", "/mnt/user-data/uploads/other/resume.md", "/mnt/user-data/uploads/unread.md"])
+def test_virtual_path_alias_cannot_authorize_another_file(filename):
+    assert score([evidence(resume_file=filename)]) == []
+
+
 def test_one_resume_excerpt_cannot_fill_all_five_dimensions():
     from app.jobscout.matching import DIMENSIONS
 
@@ -112,6 +123,35 @@ def test_malformed_dimension_cannot_crash_match_validation():
 
 def test_low_proficiency_does_not_support_expert_requirement():
     assert score([evidence(requirement_quote="精通 Python", resume_quote="了解 Python")], record={**RECORD, "任职要求": "精通 Python"}, resumes={"resume.md": "本科学历。了解 Python。"}) == []
+
+
+@pytest.mark.parametrize("quote", ["了解 Python", "Python"])
+def test_direction_cannot_bypass_skill_proficiency_by_cropping_or_changing_field(quote):
+    record = {**RECORD, "任职要求": "精通 Python"}
+    item = evidence(dimension="direction", requirement_field="岗位", requirement_quote="Python 工程师", resume_quote=quote)
+    assert score([item], record=record, resumes={"resume.md": "本科学历。了解 Python。"}) == []
+
+
+def test_cropped_quote_cannot_hide_negation_in_uploaded_resume():
+    assert score([evidence(resume_quote="Python")], resumes={"resume.md": "本科学历。不会 Python。"}) == []
+
+
+def test_proficiency_of_other_skill_and_section_heading_do_not_zero_supported_skill():
+    resume = "本科学历。数据与技术基础：熟练使用 Python，了解 Java。"
+    item = evidence(requirement_quote="精通 Python", resume_quote="数据与技术基础：熟练使用 Python，了解 Java")
+    assert score([item], record={**RECORD, "任职要求": "精通 Python"}, resumes={"resume.md": resume})[0]["total"] == 30
+
+
+def test_cropped_repeated_term_cannot_choose_the_more_flattering_occurrence():
+    resume = "本科学历。了解 Python。熟练使用 Python。"
+    record = {**RECORD, "任职要求": "精通 Python"}
+    assert score([evidence(requirement_quote="精通 Python", resume_quote="Python")], record=record, resumes={"resume.md": resume}) == []
+    assert score([evidence(requirement_quote="精通 Python", resume_quote="熟练使用 Python")], record=record, resumes={"resume.md": resume})[0]["total"] == 30
+
+
+def test_requirement_for_another_skill_does_not_raise_the_matching_threshold():
+    record = {**RECORD, "任职要求": "熟练 Java，了解 Python"}
+    assert score([evidence(requirement_quote="了解 Python", resume_quote="了解 Python")], record=record, resumes={"resume.md": "本科学历。了解 Python。"})[0]["total"] == 30
 
 
 def test_rejection_audit_contains_counts_only():

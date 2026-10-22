@@ -24,3 +24,8 @@ The container smoke must request every shipped helper, including workbench.js.
 Use explicit synchronization such as `threading.Event` rather than sleep-based timing thresholds for worker lifecycle assertions. Every test must release blocked workers and restore any process-global monkeypatches so teardown cannot leak threads or state into later tests.
 
 Stress/soak testing, AnyIO worker instrumentation, Uvicorn multi-process behavior, and broad production executor redesign are separate concerns and should not be folded into these deterministic regressions.
+
+Tracker role identity regressions cover optional preference badges, ambiguous
+aliases, cross-owner isolation, and distinct application URLs. Matching regressions
+replay cropped/negated skill quotes and direction-based proficiency bypasses; keep
+user data and paid model calls out of offline tests.

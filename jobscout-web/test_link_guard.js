@@ -69,7 +69,7 @@ async function main() {
   const base = {
     type: "ai",
     content: "# 简历 × 飞书岗位匹配报告\n\n## 候选人画像\n已校验片段\n\n## 推荐岗位\n| 排名 | 匹配度 | 公司 / 岗位 | 核心匹配 | 主要差距 | 建议动作 | 记录标识 |\n|---|---|---|---|---|---|---|\n| 1 | 30/100 | 示例 / 开发 | 见下文 | 证据缺失项不计分 | 复核 | rec1 |\n\n## 匹配依据\n| 维度 | 得分 | 简历原文 |\n|---|---|---|\n| 技能 | 30 | Python |\n\n## 风险与数据边界\n无逐字依据不计分。",
-    additional_kwargs: { jobscout_evidence: { version: 2, mode: "base_match", match_contract_version: 1, run_id: "fixture-base", accepted_count: 1, removed_count: 0 } },
+    additional_kwargs: { jobscout_evidence: { version: 2, mode: "base_match", match_contract_version: 2, run_id: "fixture-base", accepted_count: 1, removed_count: 0 } },
   };
   context.base = base;
   const legacyBase = { ...base, additional_kwargs: { jobscout_evidence: { ...base.additional_kwargs.jobscout_evidence, match_contract_version: undefined } } };

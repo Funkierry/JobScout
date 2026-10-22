@@ -123,7 +123,18 @@ def contains_term(text, term):
     return bool(re.search(pattern, text, re.I))
 
 
-def paired_evidence(item, record, resume_span):
+def _term_clauses(text, term, *, excerpt=None):
+    """Keep qualifiers beside the cited occurrence, including cropped quotes.
+
+    Commas/colons separate skill claims and section headings; an enumeration
+    comma (、) keeps a shared qualifier. Ambiguous repeated short quotes retain
+    every matching context rather than choosing the most flattering occurrence.
+    """
+    ranges = [(match.start(), match.end()) for match in re.finditer(re.escape(excerpt), text)] if excerpt else [(0, len(text))]
+    return [match.group() for match in re.finditer(r"[^。；;，,:：\n]+", text) if contains_term(match.group(), term) and any(match.start() < end and match.end() > start for start, end in ranges)]
+
+
+def paired_evidence(item, record, resume_span, *, resume_text=None):
     field, quote, term = (item.get(name) for name in ("requirement_field", "requirement_quote", "matched_term"))
     dimension = item["dimension"]
     if not isinstance(field, str) or not re.search(FIELDS[dimension], field, re.I) or NON_REQUIREMENTS.search(field):
@@ -137,13 +148,19 @@ def paired_evidence(item, record, resume_span):
     if not contains_term(span, term) or not contains_term(resume_span, term):
         return "corresponding_term_not_found", {}
     pair = {"requirement_field": field, "requirement_quote": span, "matched_term": term}
+    contexts = _term_clauses(resume_text or resume_span, term, excerpt=resume_span)
+    if not contexts:
+        return "unsupported_resume_claim", {}
     # Negated or merely planned evidence is not a demonstrated match.
-    if re.search(r"不(?:会|懂|熟悉|具备|了解)|尚未|未曾|没有|计划学习|希望学习|\b(?:no|not|without)\b", resume_span, re.I):
+    if any(re.search(r"不(?:会|懂|熟悉|具备|了解)|尚未|未曾|没有|计划学习|希望学习|\b(?:no|not|without)\b", text, re.I) for text in contexts):
         return "unsupported_resume_claim", {}
     if dimension == "education" and (not minimum_degree(span) or not resume_degree(resume_span) or resume_degree(resume_span) < minimum_degree(span) or UPPER_BOUND.search(span)):
         return "unsupported_education", {}
     if dimension == "projects" and not re.search(r"项目|开发|搭建|设计|实现|负责|参与|建设|交付|project|built|develop|design|implement|deliver", resume_span, re.I):
         return "unsupported_project", {}
-    if re.search(r"熟练|精通|proficient|expert", span, re.I) and re.search(r"了解|入门|基础|学习中|beginner|basic|learning", resume_span, re.I):
-        return "proficiency_not_supported", pair
+    requirements = [clause for key, value in record.items() if isinstance(value, str) and re.search(FIELDS["skills"], key, re.I) and not NON_REQUIREMENTS.search(key) for clause in _term_clauses(value[:20000], term)]
+    if any(re.search(r"熟练|精通|proficient|expert", text, re.I) for text in requirements):
+        limited = next((text for text in contexts if re.search(r"了解|入门|基础|学习中|beginner|basic|learning", text, re.I)), None)
+        if limited:
+            return "proficiency_not_supported", {**pair, "resume_quote": limited}
     return "", pair

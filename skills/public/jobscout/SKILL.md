@@ -52,6 +52,8 @@ Base 匹配模式的最终回复必须从 `# 简历 × 飞书岗位匹配报告`
 
 Base 模式最后返回 `jobscout_match` JSON 代码块：
 
+对照关键词的完整上下文，保留“不会、了解、在读”等限定词。不能截短引用或改用岗位方向维度，给仅了解但岗位要求精通的技能加分。不同技能的熟练程度分别核对，不把章节标题中的“基础”当作某项技能水平。
+
 ```jobscout_match
 {"candidates":[{"record_id":"实际记录ID","score_items":[{"dimension":"skills","points":20,"requirement_field":"任职要求","requirement_quote":"熟悉 Python","matched_term":"Python","resume_file":"实际上传文件.md","resume_quote":"使用 Python 开发服务"}]}]}
 ```

@@ -40,3 +40,11 @@ Stage 6: `email/` is opt-in and has no model calls. Local credentials are never 
 History deletion: `jobscout_thread_deletions` stores owner/thread retry markers only after Gateway ownership verification. `finish_thread_deletion` removes the matching thread links, candidates and marker in one SQLite transaction; preserve target and application rows. Database failure must roll back links and retain retry authority. Native thread deletion remains in the Gateway lifecycle, never in this store.
 
 Concurrency: JobScout routes must await `_get_tracker_store()` so SQLite construction/migration runs off the request loop, not just its methods. `tasks.py` owns disconnect cancellation and batch keepalives; drain iterators/workers before launcher teardown and shield cleanup against ASGI AnyIO cancellation. Workflow deadlines use `APPLICATION_TRACKER_CHECK_TIMEOUT_SECONDS` (180s plus the interactive login allowance). Native `StatusExtractor.aextract()` uses async model I/O and shares source priority/validation with offline `extract()`; never swallow cancellation as a failed check. Legacy sync custom extractors cannot be forcibly stopped after a worker starts. Keep synthetic regressions in `test_jobscout_concurrency.py`, `test_application_tracker_deadlines.py`, and the standalone web `test_concurrency.py`; see `docs/jobscout/tracker-stability.md`.
+
+Live model replay: each evidence field remains a contiguous source excerpt; do not
+join separated role/status/date text to improve recall. `roles.py` strips only
+terminal preference badges for identity comparison. Prefer exact names, require
+a unique alias, and scope stored aliases to owner/company/identical application
+page URL. Never merge ambiguous matches or rewrite user names in a migration.
+The evaluation selector shares the production identity rule; report strict-name
+versus alias-aware baseline results separately when comparing model runs.

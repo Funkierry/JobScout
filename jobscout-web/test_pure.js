@@ -91,7 +91,8 @@ assert(trackerEvidenceLabel({ ...genericProgress, check_result: "需登录" }).i
 const oldMatchReport = { type: "ai", content: "# 简历 × 飞书岗位匹配报告\n100/100", additional_kwargs: { jobscout_evidence: { version: 2, mode: "base_match", run_id: "match-run", accepted_count: 1, removed_count: 0 } } };
 assert(guardedMessageText(oldMatchReport, "match").includes("重新生成"));
 assert(!guardedMessageText(oldMatchReport, "match").includes("100/100"));
-assert.strictEqual(guardedMessageText({ ...oldMatchReport, additional_kwargs: { jobscout_evidence: { ...oldMatchReport.additional_kwargs.jobscout_evidence, match_contract_version: 1 } } }, "match"), oldMatchReport.content);
+assert(guardedMessageText({ ...oldMatchReport, additional_kwargs: { jobscout_evidence: { ...oldMatchReport.additional_kwargs.jobscout_evidence, match_contract_version: 1 } } }, "match").includes("重新生成"));
+assert.strictEqual(guardedMessageText({ ...oldMatchReport, additional_kwargs: { jobscout_evidence: { ...oldMatchReport.additional_kwargs.jobscout_evidence, match_contract_version: 2 } } }, "match"), oldMatchReport.content);
 const portalFixture = { status: "已投递", stage: "已投递", evidence: "官网已收到", source_summary: { source: "email", status: "面试（轮次待确认）", evidence: "面试邀请", received_at: "2026-10-04T00:00:00Z", conflict: false } };
 assert(trackerEvidenceLabel(portalFixture).includes("邮件原文可核对"));
 assert(!trackerEvidenceLabel(portalFixture).includes("100%"));

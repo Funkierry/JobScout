@@ -42,6 +42,11 @@ def score_matches(candidates, records, resumes, *, audit=None, excluded=None):
             item = next((item for item in items if isinstance(item, dict) and item.get("dimension") == dimension), {})
             reason, points, span = "", item.get("points"), None
             filename, quote = item.get("resume_file"), item.get("resume_quote")
+            # Models sometimes echo the exact read_file virtual path. Resolve
+            # only that prefix against already-read uploads, never a basename
+            # from an arbitrary path or a new filesystem read.
+            if isinstance(filename, str) and filename.startswith("/mnt/user-data/uploads/"):
+                filename = filename.removeprefix("/mnt/user-data/uploads/")
             pair = {}
             if counts[dimension] != 1:
                 reason = "missing_or_duplicate_dimension"
@@ -52,7 +57,7 @@ def score_matches(candidates, records, resumes, *, audit=None, excluded=None):
             elif excerpts[re.sub(r"\s+", "", quote).casefold()] != 1:
                 reason = "reused_resume_excerpt"
             else:
-                reason, pair = paired_evidence(item, known[record_id], span)
+                reason, pair = paired_evidence(item, known[record_id], span, resume_text=resumes[filename])
             if reason:
                 audit[reason] += 1
                 audit["zeroed_items"] += 1

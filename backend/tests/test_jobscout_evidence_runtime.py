@@ -95,7 +95,7 @@ def test_base_runtime_recomputes_scores_from_actual_upload_and_owned_snapshot(mo
     assert "真实快照" in result.content and "伪造公司" not in result.content and "虚构经历" not in result.content
     assert "尚有未读分页：是" in result.content
     assert result.additional_kwargs["jobscout_evidence"]["zeroed_items"] == 4
-    assert result.additional_kwargs["jobscout_evidence"]["match_contract_version"] == 1
+    assert result.additional_kwargs["jobscout_evidence"]["match_contract_version"] == 2
 
 
 def test_async_upload_snapshot_runs_outside_event_loop(monkeypatch):

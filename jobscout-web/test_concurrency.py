@@ -10,7 +10,9 @@ from test_ui import ROOT, STAGES, fixtures, page_payload
 def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context(service_workers="block", viewport={"width": 1440, "height": 1000})
+        context = browser.new_context(
+            service_workers="block", viewport={"width": 1440, "height": 1000}
+        )
         page = context.new_page()
         unexpected, errors, cancellations = [], [], []
         page.on("pageerror", lambda error: errors.append(str(error)))
@@ -34,7 +36,9 @@ def main():
                 "/api/threads/search": [],
                 "/api/jobscout/opportunities": [],
                 "/api/jobscout/tracker/stages": STAGES,
-                "/api/jobscout/tracker/applications/page": page_payload(fixtures(), url.query),
+                "/api/jobscout/tracker/applications/page": page_payload(
+                    fixtures(), url.query
+                ),
                 "/api/jobscout/tracker/notifications": [],
                 "/api/jobscout/workbench": {"items": [], "total": 0, "has_more": False},
                 "/api/integrations/lark/status": {"installed": False},
@@ -106,7 +110,7 @@ def main():
               const stream=new ReadableStream({start(controller){
                 fixture.finishChat=()=>{
                   const ai={type:'ai',content:fixture.report || '合成回复已完成',additional_kwargs:fixture.report
-                    ? {jobscout_evidence:{version:2,run_id:'fixture-run',mode:'base_match',match_contract_version:1,accepted_count:0,removed_count:0}}
+                    ? {jobscout_evidence:{version:2,run_id:'fixture-run',mode:'base_match',match_contract_version:2,accepted_count:0,removed_count:0}}
                     : {jobscout_route:{version:3,run_id:'fixture-run',in_scope:false,missing_fields:[]}}};
                   controller.enqueue(new TextEncoder().encode('event: values\\ndata: '+JSON.stringify({messages:[ai]})+'\\n\\n'));
                   controller.close();
@@ -178,7 +182,9 @@ def main():
         expect(page.locator("#chatStatus")).to_contain_text("投递记录")
         assert page.evaluate("trackerBusy") is True
         # A completed row outside the visible page still owns the result notice.
-        page.evaluate("fixture.batchEvent({type:'row_completed',completed:6,total:6,application:{...trackerRows[0],id:999,company:'跨页公司',role:'跨页岗位',check_result:'成功'}})")
+        page.evaluate(
+            "fixture.batchEvent({type:'row_completed',completed:6,total:6,application:{...trackerRows[0],id:999,company:'跨页公司',role:'跨页岗位',check_result:'成功'}})"
+        )
         page.evaluate("fixture.finishBatch()")
         page.wait_for_function("!trackerBusy")
         expect(page.locator("dialog:modal")).to_have_count(0)
@@ -252,7 +258,9 @@ def main():
         assert page.evaluate("trackerRows.length") == 0
         assert not unexpected and not errors, (unexpected, errors)
         browser.close()
-        print("PASS: concurrent chat/refresh, view switching, background results, cancellation and logout; all requests synthetic")
+        print(
+            "PASS: concurrent chat/refresh, view switching, background results, cancellation and logout; all requests synthetic"
+        )
 
 
 if __name__ == "__main__":

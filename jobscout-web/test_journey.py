@@ -184,7 +184,7 @@ def test_feedback_preparation_journey(tmp_path, monkeypatch):
                                         "jobscout_evidence": {
                                             "version": 2,
                                             "mode": "base_match",
-                                            "match_contract_version": 1,
+                                            "match_contract_version": 2,
                                             "run_id": "synthetic",
                                             "accepted_count": 1,
                                             "removed_count": 0,
