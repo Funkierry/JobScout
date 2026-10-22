@@ -10,4 +10,5 @@
 !jobscout-web/core.js
 !jobscout-web/api-client.js
 !jobscout-web/tracker-state.js
+!jobscout-web/workbench.js
 !LICENSE

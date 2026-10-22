@@ -2,7 +2,9 @@
 
 import importlib.util
 import os
+import re
 import subprocess
+from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,6 +12,40 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def entry_scripts():
+    class Scripts(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.sources = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "script" and (source := dict(attrs).get("src")):
+                self.sources.append(source.split("?", 1)[0])
+
+    parser = Scripts()
+    parser.feed((ROOT / "jobscout-web/index.html").read_text(encoding="utf-8"))
+    return parser.sources
+
+
+def test_every_entry_script_has_a_static_nginx_route():
+    config = (ROOT / "docker/nginx/jobscout.conf").read_text(encoding="utf-8")
+    locations = re.findall(r"location\s+(=|~)\s+(\S+)\s*\{([^{}]*)\}", config)
+    for source in entry_scripts():
+        route = "/" + source
+        matches = [body for kind, pattern, body in locations if (pattern == route if kind == "=" else re.search(pattern, route))]
+        assert matches and all("proxy_pass" not in body and "Cache-Control" in body for body in matches), source
+
+
+def test_every_entry_script_is_in_the_packaged_build_context():
+    dockerfile = (ROOT / "deploy/jobscout/web.Dockerfile").read_text(encoding="utf-8")
+    allowed = (ROOT / "deploy/jobscout/web.Dockerfile.dockerignore").read_text(encoding="utf-8").splitlines()
+    copies = [line.split()[1:-1] for line in dockerfile.splitlines() if line.startswith("COPY ")]
+    for source in entry_scripts():
+        path = "jobscout-web/" + source
+        assert any(path in paths for paths in copies), source
+        assert "!" + path in allowed, source
 
 
 def load_cli():

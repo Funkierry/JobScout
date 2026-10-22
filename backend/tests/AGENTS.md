@@ -9,6 +9,9 @@ Frontend persistence/retry/logout coverage lives in `jobscout-web/test_workbench
 `jobscout-web/test_journey.py` runs separately under the offline runner with a
 browser: intercepted requests dispatch to production FastAPI routes and temporary
 SQLite. Identity/history are fixtures; do not claim live auth or model evaluation.
+Deployment tests derive scripts from the real HTML entrypoint and check static
+Nginx routes, image COPY sources and explicit build-context inclusion together.
+The container smoke must request every shipped helper, including workbench.js.
 
 ## Executor starvation tests
 
